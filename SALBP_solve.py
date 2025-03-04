@@ -4,6 +4,14 @@ import matplotlib.pyplot as plt
 import pydot
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import argparse
+import re
+import pandas as pd
+import sys
+import subprocess
+from copy import deepcopy
+from pathlib import Path
+
 
 def parse_alb(alb_file_name):
     """Reads assembly line balancing instance .alb file, returns dictionary with the information"""
@@ -117,32 +125,13 @@ def parse_bb_salb1_out(text):
         print("cpu:", cpu)
     else:
         print("Pattern not found.")
+        print("output", output)
+        value = -1000
+        verified_optimality = 0
+        cpu = -1000
     return value, verified_optimality, cpu
 
-def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_material/MMABPWW/SALBP_benchmark/small data set_n=20/" ,  instance_name = "instance_n=20_", ext = ".alb", start=1, stop = 300):
-    results = []
-    for i in range(start,stop):
-        SALBP_dict_orig = parse_alb(f"{fp}{instance_name}{i}{ext}")
-        bin_dict = deepcopy(SALBP_dict_orig)
-        for j in range(len(SALBP_dict_orig["precedence_relations"])):
-            SALBP_dict = deepcopy(SALBP_dict_orig)
-            print("SALBP_dict_orig precedence", len(SALBP_dict_orig["precedence_relations"]))
-            SALBP_dict =precedence_removal(SALBP_dict, j)
-            write_to_alb(SALBP_dict, "test.alb")
-            output = subprocess.run(["./BBR-for-SALBP1/SALB/SALB/salb", "test.alb"], stdout=subprocess.PIPE)
-            no_stations, optimal, cpu = parse_bb_salb1_out(output)
-            result = {"instance:": f"instance_n=20_{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-            
-            results.append(result)
 
-        #calculates bin packing lower bound
-        bin_dict['precedence_relations'] = []
-        write_to_alb(bin_dict, "test.alb")
-        output = subprocess.run(["./BBR-for-SALBP1/SALB/SALB/salb", "test.alb"], stdout=subprocess.PIPE)
-        no_stations, optimal, cpu = parse_bb_salb1_out(output)
-        result = {"instance:": f"instance_n=20_{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-        results.append(result)
-    return results
 
 
 
@@ -239,3 +228,73 @@ def draw_graph_with_discrete_legend(SALBP_dict, res_df, instance_name,  ax=None)
 
 
     return G
+
+
+
+def save_backup(backup_name, result):
+    intermediate = pd.DataFrame([result])
+    my_file = Path(backup_name)
+    if my_file.is_file():
+        intermediate.to_csv(backup_name, mode='a', header=False)
+    else:
+        intermediate.to_csv(backup_name)
+    
+def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_material/MMABPWW/SALBP_benchmark/small data set_n=20/" ,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb", instance_name = "instance_n=20_", ext = ".alb", start=1, stop = 300, backup_name = f"SALBP_edge_solutions.csv"):
+    results = []
+    for i in range(start,stop):
+        SALBP_dict_orig = parse_alb(f"{fp}{instance_name}{i}{ext}")
+        bin_dict = deepcopy(SALBP_dict_orig)
+        print("instance name", instance_name, i)
+        for j in range(len(SALBP_dict_orig["precedence_relations"])):
+            SALBP_dict = deepcopy(SALBP_dict_orig)
+            SALBP_dict =precedence_removal(SALBP_dict, j)
+            write_to_alb(SALBP_dict, "test.alb")
+            output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
+            no_stations, optimal, cpu = parse_bb_salb1_out(output)
+            result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+            save_backup(backup_name, result)
+            results.append(result)
+
+        #calculates bin packing lower bound
+        bin_dict['precedence_relations'] = []
+        write_to_alb(bin_dict, "test.alb")
+        output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
+        no_stations, optimal, cpu = parse_bb_salb1_out(output)
+        result = {"instance:": f"{instance_name}{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+        save_backup(backup_name, result)
+            
+        results.append(result)
+    return results
+
+
+def main():
+    # Create argument parser
+    parser = argparse.ArgumentParser(description='Process a range of integers.')
+    
+    # Add arguments
+    parser.add_argument('--start', type=int, required=True, help='Starting integer (inclusive)')
+    parser.add_argument('--end', type=int, required=True, help='Ending integer (inclusive)')
+    parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Validate input
+    if args.start > args.end:
+        print("Error: Start value must be less than or equal to end value", file=sys.stderr)
+        sys.exit(1)
+    
+    # Process the range
+    results = generate_results(fp = "../../MALBPW/MMABPW/SALBP_benchmark/medium data set_n=50/", instance_name = "instance_n=50_", start=args.start, stop = args.end, backup_name=args.backup_name)
+    results_df = pd.DataFrame(results)
+    results_df.to_csv("tasks50_test_1_50.csv")
+
+
+
+if __name__ == "__main__":
+    main()
+#reads the results csv
+#results_df = pd.read_csv("task_20_bin_lb.csv")
+#results_df = pd.DataFrame(results)
+#saves the results df to a csv file
+#results_df.to_csv("tasks20_test.csv")
