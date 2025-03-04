@@ -7,7 +7,7 @@ import matplotlib.colors as mcolors
 import argparse
 import re
 import pandas as pd
-
+import sys
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -125,6 +125,10 @@ def parse_bb_salb1_out(text):
         print("cpu:", cpu)
     else:
         print("Pattern not found.")
+        print("output", output)
+        value = -1000
+        verified_optimality = 0
+        cpu = -1000
     return value, verified_optimality, cpu
 
 
@@ -247,7 +251,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
             write_to_alb(SALBP_dict, "test.alb")
             output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
             no_stations, optimal, cpu = parse_bb_salb1_out(output)
-            result = {"instance:": f"instance_n=20_{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+            result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
             save_backup(backup_name, result)
             results.append(result)
 
@@ -256,7 +260,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         write_to_alb(bin_dict, "test.alb")
         output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
-        result = {"instance:": f"instance_n=20_{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+        result = {"instance:": f"{instance_name}{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
         save_backup(backup_name, result)
             
         results.append(result)
@@ -270,6 +274,7 @@ def main():
     # Add arguments
     parser.add_argument('--start', type=int, required=True, help='Starting integer (inclusive)')
     parser.add_argument('--end', type=int, required=True, help='Ending integer (inclusive)')
+    parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
     
     # Parse arguments
     args = parser.parse_args()
@@ -280,7 +285,7 @@ def main():
         sys.exit(1)
     
     # Process the range
-    results = generate_results(fp = "../../MALBPW/MMABPW/SALBP_benchmark/medium data set_n=50/", instance_name = "instance_n=50_", start=args.start, stop = args.end)
+    results = generate_results(fp = "../../MALBPW/MMABPW/SALBP_benchmark/medium data set_n=50/", instance_name = "instance_n=50_", start=args.start, stop = args.end, backup_name=args.backup_name)
     results_df = pd.DataFrame(results)
     results_df.to_csv("tasks50_test_1_50.csv")
 
