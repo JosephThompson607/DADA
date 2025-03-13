@@ -154,7 +154,7 @@ def plot_salbp_edge_removal_graph(SALBP_dict, instance_name, res_df):
     edge_colors = []
     for edge in G.edges():
         edge_index = SALBP_dict["precedence_relations"].index(list(edge))
-        no_stations = res_df[(res_df["instance:"] == instance_name) & (res_df["precedence_relation"] == edge_index)]["no_stations"].values[0]
+        no_stations = res_df[(res_df["instance"] == instance_name) & (res_df["precedence_relation"] == edge_index)]["no_stations"].values[0]
         edge_colors.append(no_stations)
     #saves edge colors as graph attribute
     nx.set_edge_attributes(G, dict(zip(G.edges(), edge_colors)), "value")
@@ -181,7 +181,7 @@ def plot_salbp_edge_removal_graph(SALBP_dict, instance_name, res_df):
     return G
 
 
-def draw_graph_with_discrete_legend(SALBP_dict, res_df, instance_name,  ax=None):
+def draw_graph_with_discrete_legend(SALBP_dict, res_df, instance_name,  ax=None, instance_key = 'instance'):
     G = nx.DiGraph()
     G.add_nodes_from(SALBP_dict["task_times"].keys())
     G.add_edges_from(SALBP_dict["precedence_relations"])
@@ -191,7 +191,7 @@ def draw_graph_with_discrete_legend(SALBP_dict, res_df, instance_name,  ax=None)
 
     for edge in G.edges():
         edge_index = SALBP_dict["precedence_relations"].index(list(edge))
-        no_stations = res_df[(res_df["instance:"] == instance_name) & 
+        no_stations = res_df[(res_df[instance_key] == instance_name) & 
                              (res_df["precedence_relation"] == edge_index)]["no_stations"].values[0]
         edge_colors.append(no_stations)
         if no_stations not in edge_values:
@@ -251,7 +251,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
             write_to_alb(SALBP_dict, "test.alb")
             output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
             no_stations, optimal, cpu = parse_bb_salb1_out(output)
-            result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+            result = {"instance": f"{instance_name}{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
             save_backup(backup_name, result)
             results.append(result)
 
@@ -260,7 +260,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         write_to_alb(bin_dict, "test.alb")
         output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
-        result = {"instance:": f"{instance_name}{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+        result = {"instance": f"{instance_name}{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
         save_backup(backup_name, result)
             
         results.append(result)
