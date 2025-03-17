@@ -245,13 +245,13 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         SALBP_dict_orig = parse_alb(f"{fp}{instance_name}{i}{ext}")
         bin_dict = deepcopy(SALBP_dict_orig)
         print("instance name", instance_name, i)
-        for j in range(len(SALBP_dict_orig["precedence_relations"])):
+        for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict =precedence_removal(SALBP_dict, j)
             write_to_alb(SALBP_dict, "test.alb")
             output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
             no_stations, optimal, cpu = parse_bb_salb1_out(output)
-            result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+            result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
             save_backup(backup_name, result)
             results.append(result)
 
@@ -275,6 +275,9 @@ def main():
     parser.add_argument('--start', type=int, required=True, help='Starting integer (inclusive)')
     parser.add_argument('--end', type=int, required=True, help='Ending integer (inclusive)')
     parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
+    parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
+    parser.add_argument('--instance_name', type=str, required=True, help='start of instance name EX: "instance_n=50_"')
+    parser.add_argument('--final_results_name', type=str, required=True, help='name for final results csv, if no error')
     
     # Parse arguments
     args = parser.parse_args()
@@ -285,9 +288,9 @@ def main():
         sys.exit(1)
     
     # Process the range
-    results = generate_results(fp = "../../MALBPW/MMABPW/SALBP_benchmark/medium data set_n=50/", instance_name = "instance_n=50_", start=args.start, stop = args.end, backup_name=args.backup_name)
+    results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
     results_df = pd.DataFrame(results)
-    results_df.to_csv("tasks50_test_1_50.csv")
+    results_df.to_csv(args.final_results_name)
 
 
 
