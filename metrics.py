@@ -1,7 +1,21 @@
 import numpy as np
 import networkx as nx
+import random
+import pandas as pd
 
 
+
+
+def get_all_positional_weight(G, key="task_time"):
+    '''Gets the positional weight of the graph'''
+    positional_weight = {}
+    trans_G = nx.transitive_closure(G)
+    #positional weight is the weight of the node plus the weight of its children
+    for node in trans_G.nodes():
+        positional_weight[node] = trans_G.nodes[node][key]
+        for child in trans_G.neighbors(node):
+            positional_weight[node] += trans_G.nodes[child][key]
+    return positional_weight
 
 def get_all_reverse_positional_weight(G, key="task_time"):
     '''Gets the reverse positional weight of the graph'''
@@ -51,9 +65,9 @@ def get_edge_neighbor_max_min_avg_std(G, key="task_time"):
         #adds the max and min of the weights to the edge_neighbor_max_min dictionary
         weights = pred_weights + succ_weights
         if weights:
-            edge_neighbor_max_min[edge] = {"max": max(weights), "min": min(weights), "avg": sum(weights)/len(weights), "std": np.std(weights)}
+            edge_neighbor_max_min[edge] = {"max": max(weights), "min": min(weights), "avg": sum(weights)/len(weights), "std": np.std(weights), "edge_0_weight": G.nodes[edge[0]][key], "edge_1_weight": G.nodes[edge[1]][key]}
         else:
-            edge_neighbor_max_min[edge] = {"max": 0, "min": 0, "avg": 0, "std": 0}
+            edge_neighbor_max_min[edge] = {"max": 0, "min": 0, "avg": 0, "std": 0, "edge_0_weight": G.nodes[edge[0]][key], "edge_1_weight": G.nodes[edge[1]][key]}
     return edge_neighbor_max_min
 
 def longest_chain_containing_node(G, node):
@@ -125,3 +139,121 @@ def get_longest_chain_for_edge(longest_chains_to, longest_chains_from, edge):
     child_chain = longest_chains_from[edge[1]]
     return {'nodes': parent_chain['nodes'] + child_chain['nodes'][::-1], 'weights': parent_chain['weights'] + child_chain['weights'][::-1]}
 
+
+def get_edge_data(instance, alb):
+    '''Gets the data for all of the edges for a given alb instance'''
+    edge_list = []
+    G = nx.DiGraph()
+    G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
+    G.add_edges_from(alb['precedence_relations'])
+    #adds task times as node attributes
+    nx.set_node_attributes(G, {i: {'task_time': alb['task_times'][str(i)]} for i in G.nodes})
+    positional_weights = get_all_positional_weight(G)
+    longest_chains_to, longest_chains_from = longest_weighted_chains(G)
+    edge_weights = get_edge_neighbor_max_min_avg_std(G)
+    walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
+    for idx, edge in enumerate(alb['precedence_relations']):
+        neighborhood_info = edge_weights[tuple(edge)]
+
+        chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
+        chain_avg = np.mean(chain_info['weights'])
+        chain_min = np.min(chain_info['weights'])
+        chain_max = np.max(chain_info['weights'])
+        chain_std = np.std(chain_info['weights'])
+        parent_in_degree = G.in_degree(edge[0])
+        parent_out_degree = G.out_degree(edge[0])
+        child_in_degree = G.in_degree(edge[1])
+        child_out_degree = G.out_degree(edge[1])
+        parent_weight = neighborhood_info['edge_0_weight']
+        child_weight = neighborhood_info['edge_1_weight']
+        parent_pos_weight = positional_weights[edge[0]]
+        #gets the row of the parent's walk data
+        parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
+        #drops node from parent_walk_data
+        parent_walk_data.drop('node', axis=1, inplace=True)
+        #converts parent_walk_data to a dictionary
+        parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
+        child_pos_weight = positional_weights[edge[1]]
+        edge_list.append({'instance': instance, 'edge': edge, 'idx': idx, 'parent_weight':parent_weight,'parent_pos_weight': parent_pos_weight,'child_weight':child_weight, 'child_pos_weight': child_pos_weight, 'neighborhood_min': neighborhood_info['min'], 'neighborhood_max': neighborhood_info['max'], 'neighborhood_avg': neighborhood_info['avg'], 'neighborhood_std': neighborhood_info['std'], 'parent_in_degree': parent_in_degree, 'parent_out_degree': parent_out_degree, 'child_in_degree': child_in_degree, 'child_out_degree': child_out_degree, 'chain_avg': chain_avg, 'chain_min': chain_min, 'chain_max': chain_max, 'chain_std': chain_std, **parent_walk_data})
+    return edge_list
+
+
+def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time'):
+    ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''
+    topological_sorts = []
+    for _ in range(n_runs):
+        top_sort = []
+        weights = []
+        G_copy = G.copy()
+        start_weight = 0
+        run_increasing = True
+        n_runs = 0
+        while G_copy.nodes():
+            #gets all nodes with in degree 0
+            zero_in_degree_nodes = [node for node in G_copy.nodes if G_copy.in_degree(node) == 0]
+            if not zero_in_degree_nodes:
+                raise ValueError('Graph has a cycle')
+            #selects a random node with in degree 0
+            node = random.choice(zero_in_degree_nodes)
+            node_weight = G_copy.nodes[node][weight_key]
+            if start_weight - node_weight < 0:
+                if not run_increasing:
+                    n_runs += 1
+                    run_increasing = True
+            elif start_weight - node_weight > 0:
+                if run_increasing:
+                    n_runs += 1
+                    run_increasing = False
+            start_weight = node_weight
+            weights.append(node_weight)
+            top_sort.append(node)
+            G_copy.remove_node(node)
+        topological_sorts.append({'sorted_nodes': top_sort, 'weights': weights, 'n_runs': n_runs})
+    return topological_sorts
+
+def random_walks_ALB(G, num_walks=2, walk_length=3):
+    '''performs a random walk on each node. Note that the graph becomes undirected'''
+    #transforms the graph into an undirected graph
+    G = G.to_undirected()
+    adj_matrix = nx.to_numpy_array(G)
+    inv_row_sums = np.reciprocal(adj_matrix.sum(axis=1)).reshape(-1, 1)
+    transition_probabilities = adj_matrix * inv_row_sums
+    walks = []
+    for node in G.nodes:
+        for walk in range(num_walks):
+            if transition_probabilities[int(node)-1].sum() == 0 or np.isnan(transition_probabilities[int(node)-1]).all():
+                #if the node has no outgoing edges, the walk will only contain the node
+                walks.append({'node':node , 'walk':walk, 'nodes_visited': [node]*num_walks, 'task_times':[G.nodes[node]["task_time"]]*num_walks,
+                                'total_time':G.nodes[node]["task_time"]*num_walks, 'min_time':G.nodes[node]["task_time"], 
+                                'max_time':G.nodes[node]["task_time"], 'n_unique_nodes':1, 'walk_length':walk_length})
+                break
+            current_node = node         
+            node_walks = []
+            task_times = []
+            node_walks.append(current_node)
+            task_times.append(G.nodes[current_node]["task_time"])
+            for step in range(walk_length):
+                current_node = np.random.choice(G.nodes, p=transition_probabilities[int(current_node)-1])
+                node_walks.append(current_node)
+                task_times.append(G.nodes[current_node]["task_time"])
+            walks.append({'node':node , 'walk':walk, 'nodes_visited': node_walks, 'task_times':task_times, 
+                          'total_time':sum(task_times), 'min_time':min(task_times), 'max_time':max(task_times), 
+                          'n_unique_nodes':len(set(node_walks)), 'walk_length':walk_length})
+    return walks
+
+def generate_walk_stats_ALB(G, num_walks=5, walk_length=10):
+    '''generates statistics for random walks performed on each node of graph G'''
+    walks = random_walks_ALB(G, num_walks, walk_length)
+    #For each node, combines the nodes_visited and task_times lists
+    walk_df = pd.DataFrame(walks)
+    walk_stats = walk_df.groupby('node').agg({'nodes_visited':'sum', 'task_times':'sum','total_time':'mean', 'min_time':'mean', 'max_time':'mean', 'n_unique_nodes':'mean', 'walk_length':'mean'}).reset_index()
+    #renames columns
+    walk_stats.columns = ['node', 'all_nodes_visited', 'all_task_times', 'rw_mean_total_time', 'rw_mean_min_time', 'rw_mean_max_time', 'rw_mean_n_unique_nodes', 'rw_mean_walk_length']
+    walk_stats['rw_min'] = walk_stats['all_task_times'].apply(lambda x: min(x))
+    walk_stats['rw_max'] = walk_stats['all_task_times'].apply(lambda x: max(x))
+    walk_stats['rw_mean'] = walk_stats['all_task_times'].apply(lambda x: np.mean(x))
+    walk_stats['rw_std'] = walk_stats['all_task_times'].apply(lambda x: np.std(x))
+    walk_stats['rw_n_unique_nodes'] = walk_stats['all_nodes_visited'].apply(lambda x: len(set(x)))
+    #drops all_nodes_visited and all_task_times columns
+    walk_stats = walk_stats.drop(['all_nodes_visited', 'all_task_times'], axis=1)
+    return walk_stats
