@@ -11,6 +11,7 @@ import sys
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+import os
 
 
 def parse_alb(alb_file_name):
@@ -46,6 +47,13 @@ def parse_alb(alb_file_name):
     precedence_relations = [task.split(",") for task in precedence_relations]
     parse_dict["precedence_relations"] = precedence_relations
     return parse_dict
+
+#function that returns names of all files in a directory with a given extension
+def get_instance_list(directory, keep_directory_location = True,  extension='.alb'):
+    if keep_directory_location:
+        return [ directory + '/' + f for f in os.listdir(directory) if f.endswith(extension)]
+    else:
+        return [f for f in os.listdir(directory) if f.endswith(extension)]
 
 def write_to_alb(salbp_dict, alb_file_name):
     """Writes the SALBP dictionary to an .alb file"""
@@ -252,7 +260,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict =precedence_removal(SALBP_dict, j)
             write_to_alb(SALBP_dict, "test.alb")
-            output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
+            output = subprocess.run([ex_fp,"-m","2", "test.alb"], stdout=subprocess.PIPE)
             no_stations, optimal, cpu = parse_bb_salb1_out(output)
             result = {"instance:": f"{instance_name}{i}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
             save_backup(backup_name, result)
@@ -261,7 +269,8 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         #calculates bin packing lower bound
         bin_dict['precedence_relations'] = []
         write_to_alb(bin_dict, "test.alb")
-        output = subprocess.run([ex_fp, "test.alb"], stdout=subprocess.PIPE)
+        #TODO ad -m 2 to hopefully avoid bug in solver code
+        output = subprocess.run([ex_fp, "-m","2", "test.alb"], stdout=subprocess.PIPE)
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
         result = {"instance": f"{instance_name}{i}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
         save_backup(backup_name, result)
