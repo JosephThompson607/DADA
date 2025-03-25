@@ -26,13 +26,11 @@ def parse_alb(alb_file_name):
     parse_dict["cycle_time"] = int(cycle_time.group(1))
 
     # Order Strength
-    order_strength = re.search("<order strength>\n(\\d*,\\d*)", alb_file)
-    
-    if order_strength:
-        parse_dict["original_order_strength"] = float(order_strength.group(1).replace(",", "."))
-    else:
-        order_strength = re.search("<order strength>\n(\\d*.\\d*)", alb_file)
-        parse_dict["original_order_strength"] = float(order_strength.group(1))
+    # order_strength = re.search("<order strength>\n(\\d*,\\d*)", alb_file)
+
+    # if order_strength is  not None:
+    #     order_strength = re.search("<order strength>\n(\\d*.\\d*)", alb_file)
+    #     parse_dict["original_order_strength"] = float(order_strength.group(1))
 
     # Task_times
     task_times = re.search("<task times>(.|\n)+?<", alb_file)
@@ -60,7 +58,12 @@ def write_to_alb(salbp_dict, alb_file_name):
     #task_id task_time
     #<precedence relations>
     #task_id,task_id
-
+    #if salb_dict has key n_tasks, change it to num_tasks
+    if "n_tasks" in salbp_dict:
+        salbp_dict["num_tasks"] = salbp_dict["n_tasks"]
+        salbp_dict.pop("n_tasks")
+    if "num_tasks" not in salbp_dict:
+        salbp_dict["num_tasks"] = len(salbp_dict["task_times"])
 
     # Write number of tasks
     alb = "<number of tasks>\n"
@@ -75,7 +78,7 @@ def write_to_alb(salbp_dict, alb_file_name):
     # Write precedence relations
     alb += "<precedence relations>\n"
     for relation in salbp_dict["precedence_relations"]:
-        alb += relation[0] + "," + relation[1] + "\n"
+        alb += str(relation[0]) + "," + str(relation[1]) + "\n"
     #ends the file
     alb += "<end>"
     with open(alb_file_name, "w") as alb_file:
