@@ -386,12 +386,13 @@ def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/
     return results
 
 
-def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
+def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None):
     results = []
     #loads the pickle file
     with open(fp, 'rb') as f:
         alb_files = pickle.load(f)
-
+    if start is not None and stop is not None:
+        alb_files = alb_files[start:stop]
 
 
     results = generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size)
@@ -429,7 +430,7 @@ def main():
         results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
 
     else:
-        results = generate_results_from_pickle(args.filepath, args.final_results_fp,ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes)
+        results = generate_results_from_pickle(args.filepath, args.final_results_fp,ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end)
     # Process the range
     
     results_df = pd.DataFrame(results)
