@@ -328,11 +328,11 @@ def generate_one_instance_results(alb_dict, ex_fp):
     results.append(result)
     return results
 
-def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
+
+
+def generate_results_from_dict_list(alb_files, out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
     results = []
     #loads the pickle file
-    with open(fp, 'rb') as f:
-        alb_files = pickle.load(f)
 
 
 
@@ -346,6 +346,18 @@ def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/S
     pool.join()
 
     save_backup(out_fp+backup_name, results)
+    return results
+
+
+def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
+    results = []
+    #loads the pickle file
+    with open(fp, 'rb') as f:
+        alb_files = pickle.load(f)
+
+
+
+    results = generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size)
     return results
 
 def main():
