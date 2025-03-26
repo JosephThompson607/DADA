@@ -340,7 +340,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
     # Use a unique temporary ALB file per process
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
-
+        orig_prec = len(SALBP_dict_orig["precedence_relations"])
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
@@ -354,6 +354,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
                 "precedence_relation": j,
                 "nodes": relation,
                 "no_stations": no_stations,
+                "original_n_precedence_constraints": orig_prec,
                 "optimal": optimal,
                 "cpu": cpu
             }
@@ -407,7 +408,7 @@ def main():
     parser.add_argument('--end', type=int, required=False, help='Ending integer (inclusive)')
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
-    parser.add_argument('--SALBP_solver_fp', type=str, default="BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
+    parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
     parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
