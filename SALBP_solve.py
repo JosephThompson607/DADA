@@ -26,8 +26,6 @@ def compress_alb_instances(dir, output_fp):
     for f in files:
         alb_file = parse_alb(f"{f}")
         alb_file['name'] = f
-        print(alb_file)
-        print(max(alb_file['task_times'].keys()))
         alb_files.append(alb_file)
 
     #saves to pickle
