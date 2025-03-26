@@ -12,7 +12,26 @@ import subprocess
 from copy import deepcopy
 from pathlib import Path
 import os
+from pathlib import Path
+import pickle
 
+
+
+def compress_alb_instances(dir, output_fp):
+    #gets all files with .alb extension, checks subdirectories
+    files = [f for f in Path(dir).rglob("*.alb")]
+    
+    alb_files = []
+    for f in files:
+        alb_file = parse_alb(f"{f}")
+        alb_file['name'] = f
+        print(alb_file)
+        print(max(alb_file['task_times'].keys()))
+        alb_files.append(alb_file)
+
+    #saves to pickle
+    with open(output_fp, 'wb') as f:
+        pickle.dump(alb_files, f)
 
 def parse_alb(alb_file_name):
     """Reads assembly line balancing instance .alb file, returns dictionary with the information"""
