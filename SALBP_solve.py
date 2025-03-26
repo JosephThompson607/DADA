@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 from pathlib import Path
 import pickle
+from multiprocessing.dummy import Pool as ThreadPool
 
 
 
@@ -297,6 +298,55 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         results.append(result)
     return results
 
+
+def generate_one_instance_results(alb_dict, ex_fp):
+    results = []
+    SALBP_dict_orig = alb_dict
+    bin_dict = deepcopy(SALBP_dict_orig)
+    instance_fp = SALBP_dict_orig['name']
+    #instance name is after the last / and before the .alb
+    instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+    print("instance name", instance_fp)
+    for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+        SALBP_dict = deepcopy(SALBP_dict_orig)
+        SALBP_dict =precedence_removal(SALBP_dict, j)
+        write_to_alb(SALBP_dict, "test.alb")
+        output = subprocess.run([ex_fp,"-m","2", "test.alb"], stdout=subprocess.PIPE)
+        no_stations, optimal, cpu = parse_bb_salb1_out(output)
+        result = {"instance:": f"{instance_name}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+        save_backup(instance_name +".csv", result)
+        results.append(result)
+
+    #calculates bin packing lower bound
+    bin_dict['precedence_relations'] = []
+    write_to_alb(bin_dict, "test.alb")
+    #TODO ad -m 2 to hopefully avoid bug in solver code
+    output = subprocess.run([ex_fp, "-m","2", "test.alb"], stdout=subprocess.PIPE)
+    no_stations, optimal, cpu = parse_bb_salb1_out(output)
+    result = {"instance": f"{instance_name}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+    save_backup( instance_name+".csv", result)
+    results.append(result)
+    return results
+
+def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
+    results = []
+    #loads the pickle file
+    with open(fp, 'rb') as f:
+        alb_files = pickle.load(f)
+
+
+
+    #creates a pool of threads
+    pool = ThreadPool(pool_size)
+
+    #uses the pool to calculate the results
+    results = pool.map( lambda x: generate_one_instance_results(x, ex_fp, backup_name), alb_files)
+    #closes the pool
+    pool.close()
+    pool.join()
+
+    save_backup(out_fp+backup_name, results)
+    return results
 
 def main():
     # Create argument parser
