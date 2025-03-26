@@ -328,7 +328,7 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
 #     results.append(result)
 #     return results
 
-def generate_one_instance_results(alb_dict, ex_fp):
+def generate_one_instance_results(alb_dict, ex_fp, out_fp):
     results = []
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
@@ -357,7 +357,7 @@ def generate_one_instance_results(alb_dict, ex_fp):
                 "optimal": optimal,
                 "cpu": cpu
             }
-            save_backup(instance_name + ".csv", result)
+            save_backup(out_fp+instance_name + ".csv", result)
             results.append(result)
 
         # Compute bin packing lower bound
@@ -380,7 +380,7 @@ def generate_one_instance_results(alb_dict, ex_fp):
 
 def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4):
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp) for alb in alb_files])
+        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp, out_fp) for alb in alb_files])
 
     save_backup(out_fp + backup_name, results)
     return results
