@@ -15,6 +15,8 @@ import os
 from pathlib import Path
 import pickle
 from multiprocessing.dummy import Pool as ThreadPool
+import multiprocessing
+import tempfile
 
 
 
@@ -297,53 +299,90 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
     return results
 
 
+# def generate_one_instance_results(alb_dict, ex_fp):
+#     results = []
+#     SALBP_dict_orig = alb_dict
+#     bin_dict = deepcopy(SALBP_dict_orig)
+#     instance_fp = SALBP_dict_orig['name']
+#     #instance name is after the last / and before the .alb
+#     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+#     print("instance name", instance_fp)
+#     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+#         SALBP_dict = deepcopy(SALBP_dict_orig)
+#         SALBP_dict =precedence_removal(SALBP_dict, j)
+#         write_to_alb(SALBP_dict, "test.alb")
+#         output = subprocess.run([ex_fp,"-m","2", "test.alb"], stdout=subprocess.PIPE)
+#         no_stations, optimal, cpu = parse_bb_salb1_out(output)
+#         result = {"instance:": f"{instance_name}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+#         save_backup(instance_name +".csv", result)
+#         results.append(result)
+
+#     #calculates bin packing lower bound
+#     bin_dict['precedence_relations'] = []
+#     write_to_alb(bin_dict, "test.alb")
+#     #TODO ad -m 2 to hopefully avoid bug in solver code
+#     output = subprocess.run([ex_fp, "-m","2", "test.alb"], stdout=subprocess.PIPE)
+#     no_stations, optimal, cpu = parse_bb_salb1_out(output)
+#     result = {"instance": f"{instance_name}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
+#     save_backup( instance_name+".csv", result)
+#     results.append(result)
+#     return results
+
 def generate_one_instance_results(alb_dict, ex_fp):
     results = []
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
-    #instance name is after the last / and before the .alb
+    
+    # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-    print("instance name", instance_fp)
-    for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
-        SALBP_dict = deepcopy(SALBP_dict_orig)
-        SALBP_dict =precedence_removal(SALBP_dict, j)
-        write_to_alb(SALBP_dict, "test.alb")
-        output = subprocess.run([ex_fp,"-m","2", "test.alb"], stdout=subprocess.PIPE)
+
+    # Use a unique temporary ALB file per process
+    with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
+        temp_alb_path = temp_alb.name  # Path to temporary file
+
+        for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+            SALBP_dict = deepcopy(SALBP_dict_orig)
+            SALBP_dict = precedence_removal(SALBP_dict, j)
+            
+            write_to_alb(SALBP_dict, temp_alb_path)
+            output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
+            
+            no_stations, optimal, cpu = parse_bb_salb1_out(output)
+            result = {
+                "instance": instance_name,
+                "precedence_relation": j,
+                "nodes": relation,
+                "no_stations": no_stations,
+                "optimal": optimal,
+                "cpu": cpu
+            }
+            save_backup(instance_name + ".csv", result)
+            results.append(result)
+
+        # Compute bin packing lower bound
+        bin_dict['precedence_relations'] = []
+        write_to_alb(bin_dict, temp_alb_path)
+        output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
+        
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
-        result = {"instance:": f"{instance_name}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-        save_backup(instance_name +".csv", result)
+        result = {
+            "instance": instance_name,
+            "precedence_relation": "None",
+            "no_stations": no_stations,
+            "optimal": optimal,
+            "cpu": cpu
+        }
+        save_backup(instance_name + ".csv", result)
         results.append(result)
 
-    #calculates bin packing lower bound
-    bin_dict['precedence_relations'] = []
-    write_to_alb(bin_dict, "test.alb")
-    #TODO ad -m 2 to hopefully avoid bug in solver code
-    output = subprocess.run([ex_fp, "-m","2", "test.alb"], stdout=subprocess.PIPE)
-    no_stations, optimal, cpu = parse_bb_salb1_out(output)
-    result = {"instance": f"{instance_name}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-    save_backup( instance_name+".csv", result)
-    results.append(result)
     return results
 
+def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4):
+    with multiprocessing.Pool(pool_size) as pool:
+        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp) for alb in alb_files])
 
-
-def generate_results_from_dict_list(alb_files, out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4):
-    results = []
-    #loads the pickle file
-
-
-
-    #creates a pool of threads
-    pool = ThreadPool(pool_size)
-
-    #uses the pool to calculate the results
-    results = pool.map( lambda x: generate_one_instance_results(x, ex_fp, backup_name), alb_files)
-    #closes the pool
-    pool.close()
-    pool.join()
-
-    save_backup(out_fp+backup_name, results)
+    save_backup(out_fp + backup_name, results)
     return results
 
 
@@ -360,26 +399,39 @@ def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/S
 
 def main():
     # Create argument parser
-    parser = argparse.ArgumentParser(description='Process a range of integers.')
+    parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
     
     # Add arguments
-    parser.add_argument('--start', type=int, required=True, help='Starting integer (inclusive)')
-    parser.add_argument('--end', type=int, required=True, help='Ending integer (inclusive)')
+    parser.add_argument('--start', type=int, required=False, help='Starting integer (inclusive)')
+    parser.add_argument('--end', type=int, required=False, help='Ending integer (inclusive)')
+    parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
+    parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
+    parser.add_argument('--SALBP_solver_fp', type=str, default="BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
     parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
-    parser.add_argument('--instance_name', type=str, required=True, help='start of instance name EX: "instance_n=50_"')
-    parser.add_argument('--final_results_name', type=str, required=True, help='name for final results csv, if no error')
+    parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
+    parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
     
     # Parse arguments
     args = parser.parse_args()
     
     # Validate input
-    if args.start > args.end:
-        print("Error: Start value must be less than or equal to end value", file=sys.stderr)
-        sys.exit(1)
-    
+    if args.from_alb_folder:
+        if args.instance_name is None:
+            print("Error: Must provide instance name if not reading from pickle", file=sys.stderr)
+            sys.exit(1)
+        if args.start is None or args.end is None:
+            print("Error: Must provide both start and end values if not reading from pickle", file=sys.stderr)
+            sys.exit(1)
+        if args.start > args.end:
+            print("Error: Start value must be less than or equal to end value", file=sys.stderr)
+            sys.exit(1)
+        results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
+
+    else:
+        results = generate_results_from_pickle(args.filepath, args.final_results_fp,ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes)
     # Process the range
-    results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
+    
     results_df = pd.DataFrame(results)
     results_df.to_csv(args.final_results_name)
 
