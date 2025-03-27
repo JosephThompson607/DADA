@@ -374,7 +374,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
             "optimal": optimal,
             "cpu": cpu
         }
-        save_backup(instance_name + ".csv", result)
+        save_backup(out_fp+instance_name + ".csv", result)
         results.append(result)
 
     return results
