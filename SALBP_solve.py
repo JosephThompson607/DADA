@@ -17,100 +17,10 @@ import pickle
 from multiprocessing.dummy import Pool as ThreadPool
 import multiprocessing
 import tempfile
+import glob
+from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle
 
 
-
-def compress_alb_instances(dir, output_fp):
-    #gets all files with .alb extension, checks subdirectories
-    files = [f for f in Path(dir).rglob("*.alb")]
-    
-    alb_files = []
-    for f in files:
-        alb_file = parse_alb(f"{f}")
-        alb_file['name'] = f
-        alb_files.append(alb_file)
-
-    #saves to pickle
-    with open(output_fp, 'wb') as f:
-        pickle.dump(alb_files, f)
-
-def parse_alb(alb_file_name):
-    """Reads assembly line balancing instance .alb file, returns dictionary with the information"""
-    parse_dict = {}
-    alb_file = open(alb_file_name).read()
-    # Get number of tasks
-    num_tasks = re.search("<number of tasks>\n(\\d*)", alb_file)
-    parse_dict["num_tasks"] = int(num_tasks.group(1))
-
-    # Get cycle time
-    cycle_time = re.search("<cycle time>\n(\\d*)", alb_file)
-    parse_dict["cycle_time"] = int(cycle_time.group(1))
-
-    # Order Strength
-    # order_strength = re.search("<order strength>\n(\\d*,\\d*)", alb_file)
-
-    # if order_strength is  not None:
-    #     order_strength = re.search("<order strength>\n(\\d*.\\d*)", alb_file)
-    #     parse_dict["original_order_strength"] = float(order_strength.group(1))
-
-    # Task_times
-    task_times = re.search("<task times>(.|\n)+?<", alb_file)
-
-    # Get lines in this regex ignoring the first and last 2
-    task_times = task_times.group(0).split("\n")[1:-2]
-    task_times = {task.split()[0]: int(task.split()[1]) for task in task_times}
-    parse_dict["task_times"] = task_times
-
-    # Precedence relations
-    precedence_relations = re.search("<precedence relations>(.|\n)+?<", alb_file)
-    precedence_relations = precedence_relations.group(0).split("\n")[1:-2]
-    precedence_relations = [task.split(",") for task in precedence_relations]
-    parse_dict["precedence_relations"] = precedence_relations
-    return parse_dict
-
-#function that returns names of all files in a directory with a given extension
-def get_instance_list(directory, keep_directory_location = True,  extension='.alb'):
-    if keep_directory_location:
-        return [ directory + '/' + f for f in os.listdir(directory) if f.endswith(extension)]
-    else:
-        return [f for f in os.listdir(directory) if f.endswith(extension)]
-
-def write_to_alb(salbp_dict, alb_file_name):
-    """Writes the SALBP dictionary to an .alb file"""
-    #Format of alb:
-    # <number of tasks>
-    # no_tasks
-    # <cycle time>
-    # cycle_time
-    #<task times>
-    #task_id task_time
-    #<precedence relations>
-    #task_id,task_id
-    #if salb_dict has key n_tasks, change it to num_tasks
-    if "n_tasks" in salbp_dict:
-        salbp_dict["num_tasks"] = salbp_dict["n_tasks"]
-        salbp_dict.pop("n_tasks")
-    if "num_tasks" not in salbp_dict:
-        salbp_dict["num_tasks"] = len(salbp_dict["task_times"])
-
-    # Write number of tasks
-    alb = "<number of tasks>\n"
-    alb += str(salbp_dict["num_tasks"]) + "\n"
-    # Write cycle time
-    alb += "<cycle time>\n"
-    alb += str(salbp_dict["cycle_time"]) + "\n"
-    # Write task times
-    alb += "<task times>\n"
-    for task_id, task_time in salbp_dict["task_times"].items():
-        alb += task_id + " " + str(task_time) + "\n"
-    # Write precedence relations
-    alb += "<precedence relations>\n"
-    for relation in salbp_dict["precedence_relations"]:
-        alb += str(relation[0]) + "," + str(relation[1]) + "\n"
-    #ends the file
-    alb += "<end>"
-    with open(alb_file_name, "w") as alb_file:
-        alb_file.write(alb)
     
 
 
@@ -387,11 +297,13 @@ def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/
     return results
 
 
+
+
+
 def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None):
     results = []
     #loads the pickle file
-    with open(fp, 'rb') as f:
-        alb_files = pickle.load(f)
+    alb_files = open_salbp_pickle(fp)
     if start is not None and stop is not None:
         alb_files = alb_files[start:stop]
 
