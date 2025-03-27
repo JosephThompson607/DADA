@@ -5,6 +5,7 @@ from pathlib import Path
 import glob
 import sys
 import re
+import argparse
 
 def open_salbp_pickle(fp):
     with open(fp, 'rb') as f:
@@ -107,11 +108,17 @@ def get_folders_with_alb_files(root_path):
         folders.add(os.path.dirname(filepath))
     return list(folders)
 
-def find_and_compress_alb_instances(dir, output_fp):
+def find_and_compress_alb_instances(dir, output_fp, overwrite=False):
     #gets all folders with .alb extension
     alb_files = get_folders_with_alb_files(dir)
     for folder in alb_files:
         print(f"Compressing {folder}")
+        #checks if the output file already exists
+        if os.path.exists(output_fp+folder.split("/")[-1]+".pkl"):
+            print(f"Error: {output_fp+folder.split('/')[-1]+'.pkl'} already exists", file=sys.stderr)
+            if not overwrite:
+                print("Overwrite flag not set, skipping", file=sys.stderr)
+                continue
         compress_alb_instances(folder, output_fp+folder.split("/")[-1]+".pkl")
 
 
@@ -132,12 +139,25 @@ def compress_alb_instances(dir, output_fp):
         pickle.dump(alb_files, f)
 
 
+def main():
+    #reads command line arguments
+    parser = argparse.ArgumentParser(description='Compresses assembly line balancing instances')
+    parser.add_argument('input', type=str, help='Directory containing .alb files')
+    parser.add_argument('output', type=str, help='Output file path')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing output files')
+    args = parser.parse_args()
+    #checks if the input directory exists
+    if not os.path.exists(args.input):
+        print(f"Error: Directory {args.input} does not exist", file=sys.stderr)
+        return
+    #checks if the output directory exists
+    if not os.path.exists(os.path.dirname(args.output)):
+        print(f"Error: Directory {os.path.dirname(args.output)} does not exist", file=sys.stderr)
+        return
+    find_and_compress_alb_instances(args.input, args.output, args.overwrite)
+    print("Done")
+
+
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python alb_instance_compressor.py <input_directory> <output_file>", file=sys.stderr)
-        sys.exit(1)
-    input_dir = sys.argv[1]
-    output_file = sys.argv[2]
-    find_and_compress_alb_instances(input_dir, output_file)
-    print("Done")
+    main()
