@@ -246,7 +246,8 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
     
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-
+    if not os.path.exists(out_fp):
+         os.makedirs(out_fp)
     # Use a unique temporary ALB file per process
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
