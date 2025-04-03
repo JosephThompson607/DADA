@@ -239,11 +239,12 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
 #     return results
 
 def generate_one_instance_results(alb_dict, ex_fp, out_fp):
-    results = []
+    print("I AM RUNNING")
+    print("YES!!!!")
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
-    
+    results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
     if not os.path.exists(out_fp):
@@ -252,6 +253,23 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         orig_prec = len(SALBP_dict_orig["precedence_relations"])
+        #original problem
+        SALBP_dict = deepcopy(SALBP_dict_orig)
+        write_to_alb(SALBP_dict, temp_alb_path)
+        output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
+        no_stations, optimal, cpu = parse_bb_salb1_out(output)
+        orig_prob = {
+            "instance": instance_name,
+            "precedence_relation": "None",
+            "nodes": "SALBP_original",
+            "no_stations": no_stations,
+            "original_n_precedence_constraints": orig_prec,
+            "optimal": optimal,
+            "cpu": cpu
+        }
+        results.append(orig_prob)
+        save_backup(out_fp+instance_name + ".csv", orig_prob)
+        #proceeds to precedence constraint removal
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
@@ -270,12 +288,12 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
                 "cpu": cpu
             }
             save_backup(out_fp+instance_name + ".csv", result)
-            results.append(result)
+#             results.append(result)
 
         # Compute bin packing lower bound
         bin_dict['precedence_relations'] = []
         write_to_alb(bin_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", "2", "-b", "1", temp_alb_path], stdout=subprocess.PIPE)
         
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
         result = {
@@ -289,6 +307,12 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
                     }
         save_backup(out_fp+instance_name + ".csv", result)
         results.append(result)
+        results.append(result)
+        results.append(result)
+        results.append(result)
+
+ 
+        
 
     return results
 

@@ -8,6 +8,5 @@ small data set_n=20
 *.xlsx
 *.alb
 *.gexf
-torch/__pychache__
 *.ipynb_checkpoints
 __pycache__/
