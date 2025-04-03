@@ -263,16 +263,14 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
         SALBP_dict = deepcopy(SALBP_dict_orig)
         write_to_alb(SALBP_dict, temp_alb_path)
         output = subprocess.run([ex_fp, "-m", "2", "-b", "1", temp_alb_path], stdout=subprocess.PIPE)
-        no_stations, optimal, cpu, bin_lb = parse_bb_salb1_out(output)
-        print("HERE IS THE BINLB", bin_lb)
+        salbp_sol, optimal, cpu, bin_lb = parse_bb_salb1_out(output)
         if not bin_lb:
             print("ERROR, no bin_lb", output)
-            return
         orig_prob = {
             "instance": instance_name,
             "precedence_relation": "None",
             "nodes": "SALBP_original",
-            "no_stations": no_stations,
+            "no_stations": salbp_sol,
             "original_n_precedence_constraints": orig_prec,
             "optimal": optimal,
             "cpu": cpu,
@@ -280,12 +278,15 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
         }
         results.append(orig_prob)
         save_backup(out_fp+instance_name + ".csv", orig_prob)
-        
-        #proceeds to precedence constraint removal
+        #Tracking if instance autocompleted because bp=salbp and setting defaults
+        cpu = -1 
+        no_stations = salbp_sol
+
+        #proceeds to precedence constraint removal, if bin_lb != no stations
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
-            if bin_lb != no_stations: #If bin_lb==no_stations, then we don't need to do any precedence removal
+            if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
                 write_to_alb(SALBP_dict, temp_alb_path)
                 output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
 
