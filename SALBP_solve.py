@@ -279,12 +279,14 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
         
         no_stations, optimal, cpu = parse_bb_salb1_out(output)
         result = {
-            "instance": instance_name,
-            "precedence_relation": "None",
-            "no_stations": no_stations,
-            "optimal": optimal,
-            "cpu": cpu
-        }
+                        "instance": instance_name,
+                        "precedence_relation": None,
+                        "nodes": "bin_lb",
+                        "no_stations": no_stations,
+                        "original_n_precedence_constraints": orig_prec,
+                        "optimal": optimal,
+                        "cpu": cpu
+                    }
         save_backup(out_fp+instance_name + ".csv", result)
         results.append(result)
 
