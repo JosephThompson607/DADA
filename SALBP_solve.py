@@ -53,7 +53,15 @@ def precedence_removal(SALBP_dict, edge_index):
 def parse_bb_salb1_out(text):
     '''gets the number of stations, optimal flag and cpu time from the output of the salb1 program'''
     output = text.stdout.decode("utf-8")
-    # Regular expression to capture the required values
+    lb_1 = re.search(r"First lower bound: (\d+)", output)
+    bin_lb = re.search(r"Bin-packing lower bound (\d+)", output)
+    if bin_lb:
+        lb = int(bin_lb.group(1))
+    elif lb_1:       #lb_1 is ceil(#station/C), also valid bin lb
+        lb = int(lb_1.group(1))
+    else:
+        lb = None
+    #search for final solutions
     match = re.search(r"verified_optimality\s*=\s*(\d+);\s*value\s*=\s*(\d+);\s*cpu\s*=\s*([\d.]+)", output)
 
     if match:
@@ -70,7 +78,7 @@ def parse_bb_salb1_out(text):
         value = -1000
         verified_optimality = 0
         cpu = -1000
-    return value, verified_optimality, cpu
+    return value, verified_optimality, cpu, lb
 
 
 
@@ -239,8 +247,6 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
 #     return results
 
 def generate_one_instance_results(alb_dict, ex_fp, out_fp):
-    print("I AM RUNNING")
-    print("YES!!!!")
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
@@ -256,8 +262,12 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
         #original problem
         SALBP_dict = deepcopy(SALBP_dict_orig)
         write_to_alb(SALBP_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
-        no_stations, optimal, cpu = parse_bb_salb1_out(output)
+        output = subprocess.run([ex_fp, "-m", "2", "-b", "1", temp_alb_path], stdout=subprocess.PIPE)
+        no_stations, optimal, cpu, bin_lb = parse_bb_salb1_out(output)
+        print("HERE IS THE BINLB", bin_lb)
+        if not bin_lb:
+            print("ERROR, no bin_lb", output)
+            return
         orig_prob = {
             "instance": instance_name,
             "precedence_relation": "None",
@@ -265,19 +275,21 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
             "no_stations": no_stations,
             "original_n_precedence_constraints": orig_prec,
             "optimal": optimal,
-            "cpu": cpu
+            "cpu": cpu,
+            "bin_lb": bin_lb
         }
         results.append(orig_prob)
         save_backup(out_fp+instance_name + ".csv", orig_prob)
+        
         #proceeds to precedence constraint removal
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
-            
-            write_to_alb(SALBP_dict, temp_alb_path)
-            output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
-            
-            no_stations, optimal, cpu = parse_bb_salb1_out(output)
+            if bin_lb != no_stations: #If bin_lb==no_stations, then we don't need to do any precedence removal
+                write_to_alb(SALBP_dict, temp_alb_path)
+                output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
+
+                no_stations, optimal, cpu, _ = parse_bb_salb1_out(output)
             result = {
                 "instance": instance_name,
                 "precedence_relation": j,
@@ -285,34 +297,11 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
                 "no_stations": no_stations,
                 "original_n_precedence_constraints": orig_prec,
                 "optimal": optimal,
-                "cpu": cpu
+                "cpu": cpu,
+                "bin_lb": bin_lb
             }
             save_backup(out_fp+instance_name + ".csv", result)
-#             results.append(result)
-
-        # Compute bin packing lower bound
-        bin_dict['precedence_relations'] = []
-        write_to_alb(bin_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", "2", "-b", "1", temp_alb_path], stdout=subprocess.PIPE)
-        
-        no_stations, optimal, cpu = parse_bb_salb1_out(output)
-        result = {
-                        "instance": instance_name,
-                        "precedence_relation": None,
-                        "nodes": "bin_lb",
-                        "no_stations": no_stations,
-                        "original_n_precedence_constraints": orig_prec,
-                        "optimal": optimal,
-                        "cpu": cpu
-                    }
-        save_backup(out_fp+instance_name + ".csv", result)
-        results.append(result)
-        results.append(result)
-        results.append(result)
-        results.append(result)
-
- 
-        
+            results.append(result)
 
     return results
 
