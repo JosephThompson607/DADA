@@ -75,5 +75,5 @@ class SALBDataset(InMemoryDataset):
     def get(self, idx):
         # Load and return a graph object by index. NOTE: INDEXING STARTS AT 1 to stay consistent with Otto
         row  = self.edge_df.iloc[idx]
-        data = torch.load( self.processed_dir +row['instance'] + ".pt")
+        data = torch.load( self.processed_dir +row['instance'] + ".pt", weights_only=False)
         return data
