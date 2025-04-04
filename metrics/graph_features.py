@@ -294,14 +294,16 @@ def get_n_tasks_without_predecessors(dag):
     """
     return len([node for node in dag.nodes() if dag.in_degree(node) == 0])
 
-
-def generate_SALBP_graph_metrics(SALBP_instance):
-
+def make_alb_digraph(SALBP_instance):
     G = nx.DiGraph()
-    print("nodes", SALBP_instance["task_times"].keys())
-    print("edges", SALBP_instance["precedence_relations"])
-    G.add_nodes_from(SALBP_instance["task_times"].keys())
+    for node, task_time in SALBP_instance['task_times'].items():
+        G.add_node(node, task_time=task_time)
+
     G.add_edges_from(SALBP_instance["precedence_relations"])
+    return G
+
+def get_graph_metrics(SALBP_instance):
+    G = make_alb_digraph(SALBP_instance)
     return generate_graph_metrics(G)
 
 

@@ -2,6 +2,7 @@ from torch_geometric.data import Dataset, Data, InMemoryDataset
 import os.path as osp
 from SALBP_solve import *
 import torch
+import ast
 
 class SALBDataset(InMemoryDataset):
     def __init__(self, root, edge_data_csv,alb_filepath, transform=None, pre_transform=None,raw_data_folder = "raw/small data set_n=20", cycle_time=1000):
