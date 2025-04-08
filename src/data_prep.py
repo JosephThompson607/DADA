@@ -145,6 +145,12 @@ def check_n_edges(df, filter=True):
         df = df.drop(columns=['red_flag'])
     return df
 
+def add_min_and_max(df):
+    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"])
+    min_and_max.reset_index(inplace = True)
+    # #merges min and max with the tasks_50 dataframe
+    df = pd.merge(df, min_and_max, on = "instance")
+    return df
 
 def make_df_for_gnn(old_df):
     '''Prepares the data to be given to the GNN'''
@@ -179,7 +185,7 @@ def main():
     # Process the range
     
     results_df = pd.DataFrame(results)
-    results_df.to_csv(args.output_fp)
+    results_df.to_csv(args.output_fp, index=False)
 
 
 

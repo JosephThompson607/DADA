@@ -3,15 +3,18 @@ import os.path as osp
 from SALBP_solve import *
 import torch
 import ast
+from alb_instance_compressor import open_salbp_pickle_as_dict
 
 class SALBDataset(InMemoryDataset):
-    def __init__(self, root, edge_data_csv,alb_filepath, transform=None, pre_transform=None,raw_data_folder = "raw/small data set_n=20", cycle_time=1000):
+    def __init__(self, root, edge_data_csv,alb_filepath, transform=None, pre_transform=None,raw_data_folder = "raw/small data set_n=20", cycle_time=1000, from_pickle=True):
         self.raw_data_folder = raw_data_folder
+        self.from_pickle = from_pickle
         self.alb_filepath = alb_filepath
         self.cycle_time = cycle_time
         self.edge_df = pd.read_csv(raw_data_folder + edge_data_csv)
-        self.edge_df['alb_files'] = alb_filepath + '/'+ self.edge_df['instance']
-        self.alb_files = self.edge_df['alb_files'].to_list()
+        self.edge_df['root_fp'] = alb_filepath
+        #self.edge_df['alb_files'] = alb_filepath + '/'+ self.edge_df['instance']
+        #self.alb_files = self.edge_df['alb_files'].to_list()
         super().__init__(root, transform, pre_transform)
 
     @property
@@ -26,7 +29,11 @@ class SALBDataset(InMemoryDataset):
     @property
     def raw_file_names(self):
         # List files in `raw_dir` necessary for generating the dataset.
-        return self.alb_files
+        if self.from_pickle:
+            return self.alb_filepath
+        else:
+            self.edge_df['alb_files']=self.alb_filepath + '/'+ self.edge_df['instance']
+        return self.edge_df['alb_files'].to_list()
 
     @property
     def processed_file_names(self):
@@ -41,16 +48,15 @@ class SALBDataset(InMemoryDataset):
 
     def process(self):
         # Read raw data and save processed data to `processed_dir`.
+        if self.from_pickle:
+            salb_instances = open_salbp_pickle_as_dict(self.alb_filepath)
         for index, row in self.edge_df.iterrows():
             print(f"Processing {row['instance']}...")
             # Example: Read graph data
-            print("processing", row['alb_files'])
-            salb_inst = parse_alb(row['alb_files'] + '.alb')
-            edge_classes =  ast.literal_eval(row['is_less_max'])
-            if len(edge_classes) != len(salb_inst['precedence_relations']):
-                print("data mismatch on edges: " ,len(edge_classes), len(salb_inst['precedence_relations']))
-                continue
-            no_stations = ast.literal_eval(row['no_stations'])
+            if  self.from_pickle:
+                salb_inst = salb_instances[row['instance']]
+            else:
+                salb_inst = parse_alb(self.edge_df['root_fp']  + '/'+ self.edge_df['instance'] + '.alb')
             prec_relations = [(int(edge[0])-1,int(edge[1]) -1 ) for edge in salb_inst['precedence_relations']]
             edge_index = torch.tensor(prec_relations, dtype=torch.long)
             #loads task times as a value, but keeps it as a fraction of the cycle time
@@ -59,6 +65,12 @@ class SALBDataset(InMemoryDataset):
             if x.dim() == 2 and x.size(0) == 1:
                 # Transpose to get shape [num_nodes, 1]
                 x = x.t()
+            edge_classes =  ast.literal_eval(row['is_less_max'])
+            if len(edge_classes) != len(salb_inst['precedence_relations']):
+                print("data mismatch on edges: " ,len(edge_classes), len(salb_inst['precedence_relations']))
+                continue
+            no_stations = ast.literal_eval(row['no_stations'])
+
             data = Data(x=x, edge_index=edge_index.t().contiguous())
             data.instance = row['instance']
             data.precendence_relation = ast.literal_eval(row['edge'])

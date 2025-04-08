@@ -20,6 +20,26 @@ def open_salbp_pickle(fp):
         print("Error: First dictionary in pickle file does not have the keys task_times, precedence_relations, cycle_time", file=sys.stderr)
     return alb_files
 
+def get_instance_name(salbp_dict):
+    '''Processes pickled instnaces'''
+    instance_name = str(salbp_dict['name']).split('/')[-1].split('.')[0]
+    return instance_name
+
+def open_salbp_pickle_as_dict(fp):
+    with open(fp, 'rb') as f:
+        alb_files = pickle.load(f)
+    
+    #checks if the pickle file is a list of dictionaries
+    if not isinstance(alb_files, list) and all(isinstance(x, dict) for x in alb_files):
+        print("Error: Pickle file does not contain a list of dictionaries", file=sys.stderr)
+        return None
+    #checks and makes sure the first dictionary has the keys task_times, precedence_relations, cycle_time
+    if not all(key in alb_files[0] for key in ["task_times", "precedence_relations", "cycle_time", "name"]):
+        print("Error: First dictionary in pickle file does not have the keys task_times, precedence_relations, cycle_time, or name", file=sys.stderr)
+    salbp_dict = {get_instance_name(inst):inst for inst in alb_files}
+    return salbp_dict
+
+
 def parse_alb(alb_file_name):
     """Reads assembly line balancing instance .alb file, returns dictionary with the information"""
     parse_dict = {}
