@@ -39,6 +39,13 @@ def open_salbp_pickle_as_dict(fp):
     salbp_dict = {get_instance_name(inst):inst for inst in alb_files}
     return salbp_dict
 
+def open_multi_pickles_as_dict(pickles_fp_list):
+    all_instances = {}
+    for fp in pickles_fp_list:
+        pickle_name = fp.split('/')[-1].split('.')[0]
+        all_instances[pickle_name]=open_salbp_pickle_as_dict(fp)
+    return all_instances
+
 
 def parse_alb(alb_file_name):
     """Reads assembly line balancing instance .alb file, returns dictionary with the information"""

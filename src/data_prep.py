@@ -68,6 +68,7 @@ def process_SALBP_res_folder(path, max_workers=6):
     all_files = list(path.glob("*.csv"))
     good_data = []
     bad_instances = []
+    
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(process_file, file): file for file in all_files}
@@ -78,6 +79,8 @@ def process_SALBP_res_folder(path, max_workers=6):
             if error is not None:
                 print(f"Error in file {error['instance']}: {error['reason']}")
                 bad_instances.append(error)
+    frame = pd.concat(good_data, ignore_index=True) if good_data else None
+    return frame, bad_instances
                 
                 
                 
