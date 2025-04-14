@@ -10,3 +10,8 @@ small data set_n=20
 *.gexf
 *.ipynb_checkpoints
 __pycache__/
+data/
+pytorch_datasets/
+runs/
+checkpoints/
+xp_configurations/

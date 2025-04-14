@@ -44,8 +44,6 @@ def task_time_change(SALBP_dict, task_id, multiplier = 1.5, debug = False):
 
 def precedence_removal(SALBP_dict, edge_index):
     """Removes a precedence relation"""
-    print("precedence_relations", len(SALBP_dict["precedence_relations"]))
-    print("edge_index", edge_index)
     SALBP_dict["precedence_relations"].pop(edge_index)
     return SALBP_dict
     
@@ -69,12 +67,9 @@ def parse_bb_salb1_out(text):
         value = int(match.group(2))
         cpu = float(match.group(3))
 
-        print("verified_optimality:", verified_optimality)
-        print("value:", value)
-        print("cpu:", cpu)
+        print("verified_optimality:", verified_optimality, " value: ", value," cpu: ", cpu)
     else:
-        print("Pattern not found.")
-        print("output", output)
+        print("Pattern not found. output: ", output)
         value = -1000
         verified_optimality = 0
         cpu = -1000
@@ -246,15 +241,17 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
 #     results.append(result)
 #     return results
 
-def generate_one_instance_results(alb_dict, ex_fp, out_fp):
+def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
     results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+
     if not os.path.exists(out_fp):
          os.makedirs(out_fp)
+    print("running: ", instance_name, " saving to output ", out_fp)
     # Use a unique temporary ALB file per process
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
@@ -262,9 +259,13 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
         #original problem
         SALBP_dict = deepcopy(SALBP_dict_orig)
         write_to_alb(SALBP_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", "2", "-b", "1", temp_alb_path], stdout=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # print("Return code:", output.returncode)
+        # print("STDOUT:", output.stdout.decode())
+        
         salbp_sol, optimal, cpu, bin_lb = parse_bb_salb1_out(output)
         if not bin_lb:
+            print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")
             print("ERROR, no bin_lb", output)
         orig_prob = {
             "instance": instance_name,
@@ -284,12 +285,15 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
 
         #proceeds to precedence constraint removal, if bin_lb != no stations
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+            print("removing edge: ", relation)
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
             if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
                 write_to_alb(SALBP_dict, temp_alb_path)
-                output = subprocess.run([ex_fp, "-m", "2", temp_alb_path], stdout=subprocess.PIPE)
-
+                output = subprocess.run([ex_fp, "-m", f"{branch}", temp_alb_path], stdout=subprocess.PIPE)
+                # print("Return code:", output.returncode)
+                # print("STDOUT:", output.stdout.decode())
+                print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")
                 no_stations, optimal, cpu, _ = parse_bb_salb1_out(output)
             result = {
                 "instance": instance_name,
@@ -306,27 +310,61 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp):
 
     return results
 
-def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4):
+def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4, branch=1):
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp, out_fp) for alb in alb_files])
+        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp, out_fp, branch) for alb in alb_files])
 
     save_backup(out_fp + backup_name, results)
     return results
 
-
-
-
-
-def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None):
+def generate_results_from_pickle(fp  ,out_fp, res_df = None,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None , branch=1):
+    '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
+    or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
+    
     results = []
     #loads the pickle file
-    alb_files = open_salbp_pickle(fp)
-    if start is not None and stop is not None:
-        alb_files = alb_files[start:stop]
 
+    if res_df is not None:
 
-    results = generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size)
+        res_df = pd.read_csv(res_df)
+        if "pickle_fp" in res_df.columns:
+            alb_files = []
+            print("not using pickle fp")
+            pickles = res_df['pickle_fp'].unique()
+            for pf in pickles:
+                alb_files +=  open_salbp_pickle(pf)
+        else:
+            alb_files = open_salbp_pickle(fp)
+        print("here is the res df", res_df.head())
+        instances = set(res_df['instance'])
+        filtered_files = []
+        for alb in alb_files:
+            name = str(alb['name']).split('/')[-1].split('.')[0]
+            if name not in instances:
+                filtered_files.append(alb)
+            else:
+                print( name, "is already in results, skipping")
+
+        results = generate_results_from_dict_list(filtered_files, out_fp, ex_fp, backup_name, pool_size, branch=branch)
+    else:
+        alb_files = open_salbp_pickle(fp)
+        if start is not None and stop is not None:
+            alb_files = alb_files[start:stop]
+        results =  generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch=branch)
     return results
+
+
+
+# def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None):
+#     results = []
+#     #loads the pickle file
+#     alb_files = open_salbp_pickle(fp)
+#     if start is not None and stop is not None:
+#         alb_files = alb_files[start:stop]
+
+
+#     results = generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size)
+#     return results
 
 def main():
     # Create argument parser
@@ -342,7 +380,8 @@ def main():
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
-    
+    parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
+    parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
     # Parse arguments
     args = parser.parse_args()
     
@@ -360,7 +399,7 @@ def main():
         results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
 
     else:
-        results = generate_results_from_pickle(args.filepath, args.final_results_fp,ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end)
+        results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config)
     # Process the range
     
     results_df = pd.DataFrame(results)

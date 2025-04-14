@@ -6,6 +6,7 @@ import torch
 import graphviz
 import torch_geometric
 from torch_geometric.data import Dataset, Data, InMemoryDataset
+
 from torch_geometric.loader import DataLoader
 import os.path as osp
 import ast
@@ -14,7 +15,6 @@ import torchmetrics
 import sys
 import os
 from datetime import datetime
-sys.path.append(os.path.abspath("torch"))
 sys.path.append(os.path.abspath("src/torch"))
 from salb_dataset import *
 from gnns import *
@@ -71,8 +71,8 @@ def train_edge_classifier(input_dataset, config ):
         for data in train_loader:
             data = data.to(device)
             optimizer.zero_grad()
-            out = model(data.x, data.edge_index)
-            loss = loss_fn(out.T, data.edge_classes.unsqueeze(dim=0).float())
+            out = model(data)
+            loss = loss_fn(out.squeeze(1), data.edge_classes.float())
             # probs = torch.sigmoid(out)
             # preds = (probs > 0.5).int().squeeze(1)
             # total_correct += (preds == data.edge_classes)
@@ -105,9 +105,9 @@ def train_edge_classifier(input_dataset, config ):
             f1 = 0
             for data in test_loader:
                 data = data.to(device)
-                out = model(data.x, data.edge_index)
-                test_loss = loss_fn(out.T, data.edge_classes.unsqueeze(dim=0).float())
-                test_total_loss +=test_loss
+                out = model(data)
+                test_loss = loss_fn(out.squeeze(1), data.edge_classes.float())
+                test_total_loss += test_loss.item()
                 probs = torch.sigmoid(out)
                 # Set a threshold to convert probabilities to binary predictions
                 threshold = 0.5
@@ -120,7 +120,7 @@ def train_edge_classifier(input_dataset, config ):
             writer.add_scalar('Accuracy/test', acc, epoch)
             writer.add_scalar('Recall/test', rec, epoch)
             writer.add_scalar('Precision/test', prec, epoch)
-            writer.add_scalar('F1/test', prec, epoch, epoch)
+            writer.add_scalar('F1/test', f1, epoch, epoch)
             print(f"Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1 Score: {f1:.4f} average probability {probs.squeeze(1).float().mean()}")
             print("test_total_loss:",test_total_loss, "best lost: ", best_loss)
             if test_total_loss < best_loss:
@@ -147,6 +147,7 @@ def load_config(config_path, architecture_map=None):
         arch_name = config['nn']['architecture']
         if arch_name in architecture_map:
             config['nn']['architecture'] = architecture_map[arch_name]
+            print("using: ", arch_name, " nn configuration")
         else:
             raise ValueError(f"Unknown architecture: {arch_name}")
 
@@ -155,6 +156,7 @@ def main():
     architecture_map = {
     "EdgeClassifier_GAT": EdgeClassifier_GAT,
     "EdgeClassifier_GNN": EdgeClassifier,
+    "EdgeClassifierGATStats": EdgeClassifierGATStats,
 }
     # Create argument parser
     parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
