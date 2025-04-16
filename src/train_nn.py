@@ -59,7 +59,7 @@ def train_edge_classifier(input_dataset, config ):
         mode='min',          # or 'max' depending on the metric
         factor=config['lr_scheduler']['factor'],          # multiply LR by this factor
         patience=config['lr_scheduler']['patience'],         # wait N epochs with no improvement
-        min_lr = config['lr_scheduler']['min_lr'],
+        min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
     pos_weight = get_pos_weight(input_dataset)
@@ -174,7 +174,7 @@ def train_graph_classifier(input_dataset, config ):
         mode='min',          # or 'max' depending on the metric
         factor=config['lr_scheduler']['factor'],          # multiply LR by this factor
         patience=config['lr_scheduler']['patience'],         # wait N epochs with no improvement
-        min_lr = config['lr_scheduler']['min_lr'],
+        min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
     pos_weight = get_pos_weight_graph(input_dataset)
