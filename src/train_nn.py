@@ -246,7 +246,7 @@ def train_graph_classifier(input_dataset, config ):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss,
-                }, f'{config['weights_dir']}/{filename}_checkpoint.pth')
+                }, f"{config['weights_dir']}/{filename}_checkpoint.pth")
                     best_loss = test_total_loss
             scheduler.step(test_total_loss)
 
