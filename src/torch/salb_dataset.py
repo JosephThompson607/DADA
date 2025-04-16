@@ -19,8 +19,7 @@ class SALBDataset(InMemoryDataset):
             self.alb_filepaths = list(self.edge_df['alb_files'].unique())
             
         else:
-            self.edge_df['root_fp'] = alb_filepaths
-            self.edge_df['alb_files']=self.alb_filepaths + '/'+ self.edge_df['instance']
+            self.alb_filepaths = list(alb_filepaths)
         #self.edge_df['alb_files'] = alb_filepath + '/'+ self.edge_df['instance']
         #self.alb_files = self.edge_df['alb_files'].to_list()
         super().__init__(root, transform, pre_transform)

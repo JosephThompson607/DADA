@@ -284,6 +284,7 @@ def main():
     # parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     # parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--config_yaml', type=str, required=True, help='Configuration file of the expirement')
+    #parser.add_argument('--alb_fp', type=str, required=False, help='filepath of alb files if not provided in the csv of the raw instances')
     # parser.add_argument('--n_workers', type=int, required=False, default=1, help='Number of workers for dataloader to use')
     #parser.add_argument('--epochs',type=int, required=False, default=2000, help='Number Epochs for training')
     # parser.add_argument('--n_hid_layers',type=int, required=False, default=64, help='Number of hidden layers to use')
@@ -299,7 +300,12 @@ def main():
     args = parser.parse_args()
     config = load_config(args.config_yaml, architecture_map=architecture_map)
     print("loading the dataset")
-    my_dataset = SALBDataset(root=config["data"]["ds_root"], edge_data_csv =config["data"]["instance_csv"],  raw_data_folder =config["data"]["raw_data_dir"])
+    if 'pickle_loc' in config.keys():
+        my_dataset = SALBDataset(alb_filepaths=config["pickle_loc"], root=config["data"]["ds_root"], edge_data_csv =config["data"]["instance_csv"],  raw_data_folder =config["data"]["raw_data_dir"])
+    else:
+        my_dataset = SALBDataset(root=config["data"]["ds_root"], edge_data_csv =config["data"]["instance_csv"],  raw_data_folder =config["data"]["raw_data_dir"])
+
+
    # print("filtering for positive instances (edge classification)")
     #my_dataset =  [data for data in my_dataset if data.graph_class] inefficient TODO: find better way, currently using preprocessed dataset
     print("done loading dataset")
