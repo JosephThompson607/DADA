@@ -134,15 +134,20 @@ class EdgeClassifierGATStats(torch.nn.Module):
     
 class GraphClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels,  num_classes=1):
+    def __init__(self, in_channels, hidden_channels):
         super(GraphClassifier, self).__init__()
         self.conv1 = GCNConv(in_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
-        self.lin = torch.nn.Linear(hidden_channels, 1)
-        
-    def forward(self, data, batch ):
+        self.lin1 = torch.nn.Linear(hidden_channels, hidden_channels)
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, 1)
+        )
+    def forward(self, data):
         x = data.x
         edge_index = data.edge_index
+        batch = data.batch
         # Node embedding
         x = self.conv1(x, edge_index)
         x = F.relu(x)
@@ -152,7 +157,7 @@ class GraphClassifier(torch.nn.Module):
 
         # 3. Apply a final classifier
         x = F.dropout(x, p=0.5, training=self.training)
-        x = self.lin(x)
+        x = self.graph_mlp(x)
         
 
         return x

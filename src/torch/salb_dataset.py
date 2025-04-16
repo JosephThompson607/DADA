@@ -128,3 +128,16 @@ def get_pos_weight(data_list):
     percent_neg = num_neg/(num_pos + num_neg)
     print(f"Percent positive {percent_pos} percent negative {percent_neg}")
     return pos_weight
+
+
+def get_pos_weight_graph(data_list):
+    num_pos = sum(data.graph_class for data in data_list)
+    num_neg = len(data_list) - num_pos
+    
+    # Compute pos_weight for BCEWithLogitsLoss
+    pos_weight = torch.tensor([num_neg / num_pos])  # Shape: (1,)
+    print(f"num pos {num_pos} num neg {num_neg} pos weight {pos_weight}")
+    percent_pos = num_pos/(num_pos + num_neg)
+    percent_neg = num_neg/(num_pos + num_neg)
+    print(f"Percent positive {percent_pos} percent negative {percent_neg}")
+    return pos_weight
