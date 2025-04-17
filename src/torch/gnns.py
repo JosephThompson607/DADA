@@ -175,7 +175,7 @@ class GraphGATClassifier(torch.nn.Module):
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
                              concat=False, dropout=dropout)  # TODO
         self.graph_mlp = torch.nn.Sequential(
-            torch.nn.Linear(hidden_channels*heads, hidden_channels),
+            torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, 1)
         )
