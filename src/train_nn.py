@@ -44,7 +44,7 @@ def get_graph_tensor(graph_df_fp):
 
     # Create the dictionary
     instance_tensor_dict = {
-        row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32, device=device)
+        row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
         for _, row in graph_df.iterrows()
     }
     return instance_tensor_dict
