@@ -70,6 +70,8 @@ def train_edge_classifier(input_dataset, config ):
     )
     if "nn_data" in config.keys():
         nn_data = process_nn_data(config["nn_data"])
+    else:
+        nn_data = {}
     pos_weight = get_pos_weight(input_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
     #loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -153,6 +155,8 @@ def train_graph_classifier(input_dataset, config ):
     best_loss = 10000
     if "nn_data" in config.keys():
         nn_data = process_nn_data(config["nn_data"])
+    else:
+        nn_data = {}
     # Hyperparameters
    
     #splits the data into train and test
