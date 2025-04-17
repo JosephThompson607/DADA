@@ -68,10 +68,10 @@ def train_edge_classifier(input_dataset, config ):
         min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
+    nn_data = {}
     if "nn_data" in config.keys():
         nn_data = process_nn_data(config["nn_data"])
-    else:
-        nn_data = {}
+       
     pos_weight = get_pos_weight(input_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
     #loss_fn = torch.nn.BCEWithLogitsLoss()
