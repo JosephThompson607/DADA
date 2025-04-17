@@ -41,10 +41,9 @@ def get_graph_tensor(graph_df_fp):
        'share_of_nodes_in_chains', 
        'share_of_isolated_nodes',
        'share_of_tasks_without_predecessors', 'avg_tasks_per_stage']
-    print("HERE ARE THE DATA TYPES: \n", graph_df[feature_cols].dtypes)
+    graph_df[feature_cols] = graph_df[feature_cols].astype(np.float32)
     # Create the dictionary
     for _, row in graph_df.iterrows():
-        print("HERE IS THE ROW", row[feature_cols].values)
         instance_tensor_dict = {
             row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
         
