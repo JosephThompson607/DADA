@@ -22,7 +22,13 @@ from SALBP_solve import *
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 
-
+def process_nn_data(nn_data_dict):
+    processed_dict = {}
+    if "edge_data" in nn_data_dict.keys():
+        processed_dict['edge_data'] = pd.read_csv(nn_data_dict['edge_data'])
+    if "graph_data" in nn_data_dict.keys():
+        processed_dict['graph_data'] = pd.read_csv(nn_data_dict['graph_data'])
+    return processed_dict
 
 def train_edge_classifier(input_dataset, config ):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -62,6 +68,8 @@ def train_edge_classifier(input_dataset, config ):
         min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
+    if "nn_data" in config.keys():
+        nn_data = process_nn_data(config["nn_data"])
     pos_weight = get_pos_weight(input_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
     #loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -76,7 +84,7 @@ def train_edge_classifier(input_dataset, config ):
         for data in train_loader:
             data = data.to(device)
             optimizer.zero_grad()
-            out = model(data)
+            out = model(data, **nn_data)
             loss = loss_fn(out.squeeze(1), data.edge_classes.float())
             # probs = torch.sigmoid(out)
             # preds = (probs > 0.5).int().squeeze(1)
@@ -110,7 +118,7 @@ def train_edge_classifier(input_dataset, config ):
             f1 = 0
             for data in test_loader:
                 data = data.to(device)
-                out = model(data)
+                out = model(data, **nn_data)
                 test_loss = loss_fn(out.squeeze(1), data.edge_classes.float())
                 test_total_loss += test_loss.item()
                 probs = torch.sigmoid(out)
@@ -143,7 +151,8 @@ def train_graph_classifier(input_dataset, config ):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device)
     best_loss = 10000
-
+    if "nn_data" in config.keys():
+        nn_data = process_nn_data(config["nn_data"])
     # Hyperparameters
    
     #splits the data into train and test
@@ -191,7 +200,7 @@ def train_graph_classifier(input_dataset, config ):
         for data in train_loader:
             data = data.to(device)
             optimizer.zero_grad()
-            out = model(data)
+            out = model(data, **nn_data)
             loss = loss_fn(out.squeeze(1), data.graph_class.float())
             loss.backward()
             optimizer.step()
@@ -221,7 +230,7 @@ def train_graph_classifier(input_dataset, config ):
             f1 = 0
             for data in test_loader:
                 data = data.to(device)
-                out = model(data)
+                out = model(data, **nn_data)
                 test_loss = loss_fn(out.squeeze(1), data.graph_class.float())
                 test_total_loss += test_loss.item()
                 probs = torch.sigmoid(out)

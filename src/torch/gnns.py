@@ -22,7 +22,9 @@ class EdgeClassifier(torch.nn.Module):
             torch.nn.Linear(hidden_channels, out_channels)
         )
         
-    def forward(self, x, edge_index):
+    def forward(self, data,**data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
         # Node embedding
         x = self.conv1(x, edge_index)
         x = F.relu(x)
@@ -53,7 +55,7 @@ class EdgeClassifier_GAT(torch.nn.Module):
             torch.nn.Linear(hidden_channels, out_channels)
         )
         
-    def forward(self,data):
+    def forward(self,data,**data_kwargs):
         x = data.x
         edge_index = data.edge_index
         # Node embedding
@@ -84,7 +86,7 @@ class EdgeClassifierGATStats(torch.nn.Module):
             torch.nn.Linear(hidden_channels, out_channels)
         )
         
-    def forward(self, data):
+    def forward(self, data,**data_kwargs):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         # Apply GAT convolutions to get node embeddings
         x = F.dropout(x, p=0.6, training=self.training)
@@ -144,7 +146,7 @@ class GraphClassifier(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, 1)
         )
-    def forward(self, data):
+    def forward(self, data,**data_kwargs):
         x = data.x
         edge_index = data.edge_index
         batch = data.batch
@@ -174,7 +176,7 @@ class GraphGATClassifier(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, 1)
         )
-    def forward(self, data):
+    def forward(self, data, **data_kwargs):
         x = data.x
         edge_index = data.edge_index
         batch = data.batch
