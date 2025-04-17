@@ -208,7 +208,7 @@ class GraphGATClassifierStats(torch.nn.Module):
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
                              concat=False, dropout=dropout)  # TODO
         self.graph_mlp = torch.nn.Sequential(
-            torch.nn.Linear(hidden_channels*heads + n_features, hidden_channels),
+            torch.nn.Linear(hidden_channels + n_features, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, 1)
         )
@@ -216,7 +216,6 @@ class GraphGATClassifierStats(torch.nn.Module):
         x = data.x
         edge_index = data.edge_index
         batch = data.batch
-        print("DATA KWARGS ", data_kwargs)
         stats_tensor = torch.stack(
             [data_kwargs["graph_data"][instance] for instance in data.instance],
             dim=0
