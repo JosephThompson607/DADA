@@ -43,6 +43,7 @@ def get_graph_tensor(graph_df_fp):
        'share_of_tasks_without_predecessors', 'avg_tasks_per_stage']
     graph_df[feature_cols] = graph_df[feature_cols].astype(np.float32)
     # Create the dictionary
+    print("here are the type", graph_df[feature_cols].applymap(type).nunique())
     for _, row in graph_df.iterrows():
         instance_tensor_dict = {
             row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
