@@ -44,7 +44,7 @@ def get_graph_tensor(graph_df_fp):
     print("HERE ARE THE DATA TYPES: \n", graph_df[feature_cols].dtypes)
     # Create the dictionary
     for _, row in graph_df.iterrows():
-        print("HERE IS THE ROW", row[feature_cols])
+        print("HERE IS THE ROW", row[feature_cols].values)
         instance_tensor_dict = {
             row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
         
