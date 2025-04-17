@@ -274,6 +274,7 @@ def main():
     "EdgeClassifier_GNN": EdgeClassifier,
     "EdgeClassifierGATStats": EdgeClassifierGATStats,
     "GraphClassifier": GraphClassifier,
+    "GraphGATClassifier":GraphGATClassifier,
 }
     # Create argument parser
     parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')

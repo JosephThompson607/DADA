@@ -39,7 +39,7 @@ class EdgeClassifier(torch.nn.Module):
     
 class EdgeClassifier_GAT(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels, heads=4, edge_dim=None):
+    def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
         super(EdgeClassifier_GAT, self).__init__()
         self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
@@ -141,6 +141,36 @@ class GraphClassifier(torch.nn.Module):
         self.lin1 = torch.nn.Linear(hidden_channels, hidden_channels)
         self.graph_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, 1)
+        )
+    def forward(self, data):
+        x = data.x
+        edge_index = data.edge_index
+        batch = data.batch
+        # Node embedding
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index)
+        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+
+        # 3. Apply a final classifier
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.graph_mlp(x)
+        
+
+        return x
+
+class GraphGATClassifier(torch.nn.Module):
+    '''Indicates if graph has an edge that impacts the lower bound'''
+    def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6):
+        super(GraphGATClassifier, self).__init__()
+        self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
+                             concat=False, dropout=dropout)  # TODO
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels*heads, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, 1)
         )
