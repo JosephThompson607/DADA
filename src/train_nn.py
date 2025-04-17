@@ -45,7 +45,7 @@ def get_graph_tensor(graph_df_fp):
     # Create the dictionary
     instance_tensor_dict = {}
     for _, row in graph_df.iterrows():
-        dat_array = np.array(row[feature_cols].values)
+        dat_array = np.array(row[feature_cols].values, dtype = np.float32)
         instance_tensor_dict[row['instance']] =  torch.tensor(dat_array,  dtype=torch.float32)
     return instance_tensor_dict
 
