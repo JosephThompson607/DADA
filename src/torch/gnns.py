@@ -216,6 +216,7 @@ class GraphGATClassifierStats(torch.nn.Module):
         x = data.x
         edge_index = data.edge_index
         batch = data.batch
+        print("DATA KWARGS ", data_kwargs)
         stats_tensor = torch.stack(
             [data_kwargs["graph_data"][instance] for instance in data.instance],
             dim=0
