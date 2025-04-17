@@ -43,10 +43,12 @@ def get_graph_tensor(graph_df_fp):
        'share_of_tasks_without_predecessors', 'avg_tasks_per_stage']
     print("HERE ARE THE DATA TYPES: \n", graph_df[feature_cols].dtypes)
     # Create the dictionary
-    instance_tensor_dict = {
-        row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
-        for _, row in graph_df.iterrows()
-    }
+    for _, row in graph_df.iterrows():
+        print("HERE IS THE ROW", row[feature_cols])
+        instance_tensor_dict = {
+            row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32)
+        
+        }
     return instance_tensor_dict
 
 def process_nn_data(nn_data_dict):
