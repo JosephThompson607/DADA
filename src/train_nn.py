@@ -51,10 +51,12 @@ def get_graph_tensor(graph_df_fp):
 
 def process_nn_data(nn_data_dict):
     '''Creates a dictionary of tensors with metadata for edges and graphs'''
+
     processed_dict = {}
     if "edge_data" in nn_data_dict.keys():
         processed_dict['edge_data'] = get_edge_tensor(nn_data_dict['edge_data'])
     if "graph_data" in nn_data_dict.keys():
+        print("THERE IS GRAPH DATA")
         processed_dict['graph_data'] = get_graph_tensor(nn_data_dict['graph_data'])
     return processed_dict
 
