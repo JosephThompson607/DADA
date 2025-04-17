@@ -22,12 +22,40 @@ from SALBP_solve import *
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 
+def get_edge_tensor(edge_df_fp):
+    print("YOU NEED TO IMPLEMENT THIS")
+    return
+
+def get_graph_tensor(graph_df_fp):
+    graph_df = pd.read_csv(graph_df_fp)
+    #preprocessing data so it is regularized for GNN
+    if "n_tasks" not in graph_df.columns:
+        graph_df['n_tasks'] = graph_df['n_stages'] * graph_df['avg_tasks_per_stage']
+    graph_df['share_of_nodes_in_chains'] = graph_df['nodes_in_chains']/ graph_df['n_tasks']
+    graph_df['avg_chain_length_div_n'] = graph_df['avg_chain_length']/ graph_df['n_tasks']
+    feature_cols = [ 'min_div_c', 'max_div_c', 'sum_div_c', 'std_div_c',
+       'order_strength', 'average_number_of_immediate_predecessors',
+       'divergence_degree',
+       'convergence_degree',  'share_of_bottlenecks',
+       'avg_degree_of_bottlenecks', 'avg_chain_length_div_n',
+       'share_of_nodes_in_chains', 
+       'share_of_isolated_nodes',
+       'share_of_tasks_without_predecessors', 'avg_tasks_per_stage']
+
+    # Create the dictionary
+    instance_tensor_dict = {
+        row['instance']: torch.tensor(row[feature_cols].values, dtype=torch.float32, device=device)
+        for _, row in graph_df.iterrows()
+    }
+    return instance_tensor_dict
+
 def process_nn_data(nn_data_dict):
+    '''Creates a dictionary of tensors with metadata for edges and graphs'''
     processed_dict = {}
     if "edge_data" in nn_data_dict.keys():
-        processed_dict['edge_data'] = pd.read_csv(nn_data_dict['edge_data'])
+        processed_dict['edge_data'] = get_edge_tensor(nn_data_dict['edge_data'])
     if "graph_data" in nn_data_dict.keys():
-        processed_dict['graph_data'] = pd.read_csv(nn_data_dict['graph_data'])
+        processed_dict['graph_data'] = get_graph_tensor(nn_data_dict['graph_data'])
     return processed_dict
 
 def train_edge_classifier(input_dataset, config ):

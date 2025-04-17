@@ -163,6 +163,9 @@ class GraphClassifier(torch.nn.Module):
         
 
         return x
+    
+
+
 
 class GraphGATClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
@@ -189,6 +192,44 @@ class GraphGATClassifier(torch.nn.Module):
 
         # 3. Apply a final classifier
         x = F.dropout(x, p=0.5, training=self.training)
+        x = self.graph_mlp(x)
+        
+
+        return x
+    
+
+
+
+class GraphGATClassifierStats(torch.nn.Module):
+    '''Indicates if graph has an edge that impacts the lower bound'''
+    def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
+        super(GraphGATClassifierStats, self).__init__()
+        self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
+                             concat=False, dropout=dropout)  # TODO
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels*heads + n_features, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, 1)
+        )
+    def forward(self, data, **data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        batch = data.batch
+        stats_tensor = torch.stack(
+            [data_kwargs["graph_data"][instance] for instance in data.instance],
+            dim=0
+        ).to(x.device)
+        # Node embedding
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index)
+        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+
+        # 3. Apply a final classifier
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = torch.cat([x, stats_tensor], dim=1)
         x = self.graph_mlp(x)
         
 
