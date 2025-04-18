@@ -81,7 +81,7 @@ def train_edge_classifier(input_dataset, config ):
 
 
     # Get today's date as a string
-    today_str = datetime.today().strftime('%Y-%m-%d')
+    today_str = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
 
     # Use it in a filename
     xp_name = config["xp_name"]
@@ -203,7 +203,7 @@ def train_graph_classifier(input_dataset, config ):
 
 
     # Get today's date as a string
-    today_str = datetime.today().strftime('%Y-%m-%d')
+    today_str = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
 
     # Use it in a filename
     xp_name = config["xp_name"]
@@ -251,7 +251,7 @@ def train_graph_classifier(input_dataset, config ):
 
         print(f'Epoch {epoch+1}, Loss: {total_loss / len(train_loader)}')
 
-            
+   
     
             # Evaluation
         model.eval()
@@ -289,8 +289,17 @@ def train_graph_classifier(input_dataset, config ):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss,
-                }, f"{config['weights_dir']}/{filename}_checkpoint.pth")
+                }, f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_best.pth")
                     best_loss = test_total_loss
+            elif epoch % save_freq ==0:
+                print("saving backup to ", f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+                    }, f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+
             scheduler.step(test_total_loss)
 
 
