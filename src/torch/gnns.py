@@ -102,13 +102,17 @@ class EdgeClassifierGATStats(torch.nn.Module):
         if batch is None:
             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
         
-        # Calculate per-graph statistics
-        mean_x = scatter(x_values, batch, dim=0, reduce="mean")
-        # For std, we need to calculate variance first and then sqrt
-        var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
-        std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
-        min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
-        max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
+        stats_tensor = torch.stack(
+            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
+            dim=0
+        ).to(x.device)
+        # # Calculate per-graph statistics
+        # mean_x = scatter(x_values, batch, dim=0, reduce="mean")
+        # # For std, we need to calculate variance first and then sqrt
+        # var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
+        # std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
+        # min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
+        # max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
         
         # For each edge, get source and target node embeddings
         row, col = edge_index
@@ -116,18 +120,18 @@ class EdgeClassifierGATStats(torch.nn.Module):
         
         # Add per-graph statistics to each edge feature
         # Determine which graph each edge belongs to
-        edge_batch = batch[row]  # Using the source node's batch assignment
+        # edge_batch = batch[row]  # Using the source node's batch assignment
         
         # Create tensor to hold graph stats for each edge
-        graph_stats = torch.cat([
-            mean_x[edge_batch].unsqueeze(1),
-            std_x[edge_batch].unsqueeze(1),
-            min_x[edge_batch].unsqueeze(1),
-            max_x[edge_batch].unsqueeze(1)
-        ], dim=1)
+        # graph_stats = torch.cat([
+        #     mean_x[edge_batch].unsqueeze(1),
+        #     std_x[edge_batch].unsqueeze(1),
+        #     min_x[edge_batch].unsqueeze(1),
+        #     max_x[edge_batch].unsqueeze(1)
+        # ], dim=1)
         
         # Concatenate edge features with graph statistics
-        edge_features = torch.cat([edge_features, graph_stats], dim=1)
+        edge_features = torch.cat([edge_features, stats_tensor], dim=1)
         
         # Pass through edge MLP for classification
         edge_pred = self.edge_mlp(edge_features)
@@ -217,7 +221,7 @@ class GraphGATClassifierStats(torch.nn.Module):
         edge_index = data.edge_index
         batch = data.batch
         stats_tensor = torch.stack(
-            [data_kwargs["graph_data"][instance] for instance in data.instance],
+            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
             dim=0
         ).to(x.device)
         # Node embedding

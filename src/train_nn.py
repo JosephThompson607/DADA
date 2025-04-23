@@ -6,7 +6,7 @@ import torch
 import graphviz
 import torch_geometric
 from torch_geometric.data import Dataset, Data, InMemoryDataset
-
+import tqdm
 from torch_geometric.loader import DataLoader
 import os.path as osp
 import ast
@@ -15,19 +15,47 @@ import torchmetrics
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 sys.path.append(os.path.abspath("src/torch"))
 from salb_dataset import *
 from gnns import *
 from SALBP_solve import *
 from torch.utils.tensorboard import SummaryWriter
 import yaml
+import shutil
 
 def get_edge_tensor(edge_df_fp):
     print("YOU NEED TO IMPLEMENT THIS")
     return
 
 def get_graph_tensor(graph_df_fp):
-    graph_df = pd.read_csv(graph_df_fp)
+    dtypes = {
+    "instance": "object",
+    "min_div_c": "float64",
+    "max_div_c": "float64",
+    "sum_div_c": "float64",
+    "std_div_c": "float64",
+    "order_strength": "float64",
+    "average_number_of_immediate_predecessors": "float64",
+    "max_degree": "int64",
+    "max_in_degree": "int64",
+    "max_out_degree": "int64",
+    "divergence_degree": "float64",
+    "convergence_degree": "float64",
+    "n_bottlenecks": "int64",
+    "share_of_bottlenecks": "float64",
+    "avg_degree_of_bottlenecks": "float64",
+    "n_chains": "int64",
+    "avg_chain_length": "float64",
+    "nodes_in_chains": "int64",
+    "n_stages": "int64",
+    "n_isolated_nodes": "int64",
+    "share_of_isolated_nodes": "float64",
+    "n_tasks_without_predecessors": "int64",
+    "share_of_tasks_without_predecessors": "float64",
+    "avg_tasks_per_stage": "float64",
+}
+    graph_df = pd.read_csv(graph_df_fp, dtype=dtypes)
     #preprocessing data so it is regularized for GNN
     if "n_tasks" not in graph_df.columns:
         graph_df['n_tasks'] = graph_df['n_stages'] * graph_df['avg_tasks_per_stage']
@@ -42,12 +70,19 @@ def get_graph_tensor(graph_df_fp):
        'share_of_isolated_nodes',
        'share_of_tasks_without_predecessors', 'avg_tasks_per_stage']
     graph_df[feature_cols] = graph_df[feature_cols].astype(np.float32)
+    
+    fps = graph_df["pickle_fp"].unique()
+    instance_tensor_dicts = {}
+    for fp in fps:
     # Create the dictionary
-    instance_tensor_dict = {}
-    for _, row in graph_df.iterrows():
-        dat_array = np.array(row[feature_cols].values, dtype = np.float32)
-        instance_tensor_dict[row['instance']] =  torch.tensor(dat_array,  dtype=torch.float32)
-    return instance_tensor_dict
+        slice_df = graph_df[graph_df['pickle_fp'] ==fp].copy()
+        print("looking at ", fp)
+        features = slice_df[feature_cols].values.astype(np.float32)
+        instances = slice_df["instance"].values
+        instance_tensor_dict = {instance: torch.tensor(feat_row, dtype=torch.float32) for instance, feat_row in zip( instances, features)}
+        instance_tensor_dicts[fp] = instance_tensor_dict
+    
+    return instance_tensor_dicts
 
 def process_nn_data(nn_data_dict):
     '''Creates a dictionary of tensors with metadata for edges and graphs'''
@@ -60,12 +95,18 @@ def process_nn_data(nn_data_dict):
         processed_dict['graph_data'] = get_graph_tensor(nn_data_dict['graph_data'])
     return processed_dict
 
-def train_edge_classifier(input_dataset, config ):
+def train_edge_classifier(input_dataset, config , save_freq=2, disable_tqdm=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device)
+    if "nn_data" in config.keys():
+        nn_data = process_nn_data(config["nn_data"])
+    else:
+        nn_data = {}
     best_loss = 10000
 
-    # Hyperparameters
+    if config['data']['filter_graph_positive']:
+        input_dataset = [data for data in input_dataset if data.graph_class]
+
    
     #splits the data into train and test
     train_dataset, test_dataset = random_split(input_dataset, [int(len(input_dataset)*0.8), len(input_dataset) - int(len(input_dataset)*0.8)])
@@ -98,9 +139,6 @@ def train_edge_classifier(input_dataset, config ):
         min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
-    nn_data = {}
-    if "nn_data" in config.keys():
-        nn_data = process_nn_data(config["nn_data"])
        
     pos_weight = get_pos_weight(input_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
@@ -113,7 +151,8 @@ def train_edge_classifier(input_dataset, config ):
         # total_correct = 0
         # total = 0
         model.train()
-        for data in train_loader:
+        train_loader_iter = tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False, disable=disable_tqdm)
+        for data in train_loader_iter:
             data = data.to(device)
             optimizer.zero_grad()
             out = model(data, **nn_data)
@@ -148,7 +187,8 @@ def train_edge_classifier(input_dataset, config ):
             prec =0
             rec = 0
             f1 = 0
-            for data in test_loader:
+            test_loader_iter = tqdm(test_loader, desc="Evaluating", leave=False, disable=disable_tqdm)
+            for data in test_loader_iter:
                 data = data.to(device)
                 out = model(data, **nn_data)
                 test_loss = loss_fn(out.squeeze(1), data.edge_classes.float())
@@ -167,7 +207,7 @@ def train_edge_classifier(input_dataset, config ):
             writer.add_scalar('Precision/test', prec, epoch)
             writer.add_scalar('F1/test', f1, epoch, epoch)
             print(f"Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1 Score: {f1:.4f} average probability {probs.squeeze(1).float().mean()}")
-            print("test_total_loss:",test_total_loss, "best lost: ", best_loss)
+            print("test_total_loss:",test_total_loss, "best lost: ", best_loss, " last lr: ", scheduler.get_last_lr())
             if test_total_loss < best_loss:
                     print("test_total_loss:",test_total_loss, "best lost: ", best_loss, "saving trained weights")
                     torch.save({
@@ -175,12 +215,22 @@ def train_edge_classifier(input_dataset, config ):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss,
-                }, f"{config['weights_dir']}/{filename}_checkpoint.pth")
+                }, f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_best.pth")
                     best_loss = test_total_loss
+            elif epoch % save_freq ==0:
+                #print("saving backup to ", f"{config['weights_dir']}/{filename}_epoch{epoch}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+                    }, f"{config['weights_dir']}/{filename}_epoch{epoch}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+
             scheduler.step(test_total_loss)
 
-def train_graph_classifier(input_dataset, config ):
+def train_graph_classifier(input_dataset, config, save_freq =2 , disable_tqdm=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     print("using device:", device)
     best_loss = 10000
     if "nn_data" in config.keys():
@@ -188,7 +238,7 @@ def train_graph_classifier(input_dataset, config ):
     else:
         nn_data = {}
     # Hyperparameters
-   
+    print("loading data")
     #splits the data into train and test
     train_dataset, test_dataset = random_split(input_dataset, [int(len(input_dataset)*0.8), len(input_dataset) - int(len(input_dataset)*0.8)])
     # train_dataset = [input_dataset[3]]
@@ -209,7 +259,7 @@ def train_graph_classifier(input_dataset, config ):
     xp_name = config["xp_name"]
     filename = f"{xp_name}_{today_str}"
     writer = SummaryWriter(f"runs/{filename}")
-
+    print("setting up model")
     model = config["nn"]["architecture"](**config["nn"]["params"]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -220,10 +270,11 @@ def train_graph_classifier(input_dataset, config ):
         min_lr = float(config['lr_scheduler']['min_lr']),
 
     )
+    print("calculating positional weight")
     pos_weight = get_pos_weight_graph(input_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
     #loss_fn = torch.nn.BCEWithLogitsLoss()
-
+    print("starting training loop")
     # Training loop
     model.train()
     for epoch in range(config["epochs"]):
@@ -231,7 +282,8 @@ def train_graph_classifier(input_dataset, config ):
         # total_correct = 0
         # total = 0
         model.train()
-        for data in train_loader:
+        train_loader_iter = tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False, disable=disable_tqdm)
+        for data in train_loader_iter:
             data = data.to(device)
             optimizer.zero_grad()
             out = model(data, **nn_data)
@@ -240,7 +292,8 @@ def train_graph_classifier(input_dataset, config ):
             optimizer.step()
 
             total_loss += loss.item()
-
+            #progress bar update
+            train_loader_iter.set_postfix(loss=loss.item())
 
 
         writer.add_scalar('Loss/train', total_loss, epoch)
@@ -262,7 +315,8 @@ def train_graph_classifier(input_dataset, config ):
             prec =0
             rec = 0
             f1 = 0
-            for data in test_loader:
+            test_loader_iter = tqdm(test_loader, desc="Evaluating", leave=False, disable=disable_tqdm)
+            for data in test_loader_iter:
                 data = data.to(device)
                 out = model(data, **nn_data)
                 test_loss = loss_fn(out.squeeze(1), data.graph_class.float())
@@ -292,13 +346,13 @@ def train_graph_classifier(input_dataset, config ):
                 }, f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_best.pth")
                     best_loss = test_total_loss
             elif epoch % save_freq ==0:
-                print("saving backup to ", f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+                #print("saving backup to ", f"{config['weights_dir']}/{filename}_epoch{epoch}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
                 torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss,
-                    }, f"{config['weights_dir']}/{filename}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
+                    }, f"{config['weights_dir']}/{filename}_epoch{epoch}_acc{int(100*acc)}_pre{int(100*prec)}_rec{int(100*rec)}_ckpt.pth")
 
             scheduler.step(test_total_loss)
 
@@ -338,6 +392,7 @@ def main():
     # parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     # parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--config_yaml', type=str, required=True, help='Configuration file of the expirement')
+    parser.add_argument('--disable_tqdm', action="store_true", help="Disables tqdm progress bar (for training on servers)")
     #parser.add_argument('--alb_fp', type=str, required=False, help='filepath of alb files if not provided in the csv of the raw instances')
     # parser.add_argument('--n_workers', type=int, required=False, default=1, help='Number of workers for dataloader to use')
     #parser.add_argument('--epochs',type=int, required=False, default=2000, help='Number Epochs for training')
@@ -359,15 +414,19 @@ def main():
     else:
         my_dataset = SALBDataset(root=config["data"]["ds_root"], edge_data_csv =config["data"]["instance_csv"],  raw_data_folder =config["data"]["raw_data_dir"])
 
+    directory = Path(config['weights_dir'])
 
+    if not directory.exists():
+        directory.mkdir(parents=True)
+    shutil.copy2(args.config_yaml, directory)
    # print("filtering for positive instances (edge classification)")
     #my_dataset =  [data for data in my_dataset if data.graph_class] inefficient TODO: find better way, currently using preprocessed dataset
     print("done loading dataset")
     print("config xp type: ", config['xp_type'] )
     if config['xp_type'] == 'edge_classification':
-        train_edge_classifier(my_dataset, config )
+        train_edge_classifier(my_dataset, config , disable_tqdm=args.disable_tqdm)
     elif config['xp_type'] == 'graph_classification':
-        train_graph_classifier(my_dataset, config)
+        train_graph_classifier(my_dataset, config, disable_tqdm=args.disable_tqdm)
     else:
         print("Error in xp type, must choose either edge_classification or graph_classification")
     # my_dataset = SALBDataset(root='pytorch_datasets/n_50',edge_data_csv ="n_50_all.csv",  raw_data_folder ="pytorch_datasets/n_50/raw/")
