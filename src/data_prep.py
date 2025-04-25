@@ -24,7 +24,7 @@ def alb_to_edge_data(alb_instance):
 
 
 
-def generate_edge_data_from_pickle(pickle_instance_fp = "raw/pkl_datasets/n_50_bottleneck.pkl", pool_size=4 ):
+def generate_graph_data_from_pickle(pickle_instance_fp = "raw/pkl_datasets/n_50_bottleneck.pkl", pool_size=4 ):
     alb_instances = open_salbp_pickle(pickle_instance_fp)
     with multiprocessing.Pool(pool_size) as pool:
         edge_data = pool.map(alb_to_edge_data, alb_instances)
@@ -169,10 +169,26 @@ def make_df_for_gnn(old_df):
     df = check_n_edges(df)
     return df
 
+def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out, ml_dat_out):
+    ''' makes data appropiate for the DataSet used by the GNN. It needs the SALBP solver results, and graph meta data df before calculating the rest'''
+    my_df, bad_instances = process_SALBP_res_folder(results_folder)
+    my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
+    my_df.to_csv(collated_out, index=False)
+    #my_df = pd.read_csv()
+    graph_data = pd.read_csv(graph_data_df_fp)
+    graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
+    w_graph_attributes = pd.merge(my_df, graph_data, on = 'instance', how="left")
+    w_graph_attributes = add_min_and_max(w_graph_attributes)
+    w_graph_attributes.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'}, inplace=True)
+    w_graph_attributes.to_csv(ml_dat_out, index=False)
+    gnn_df = make_df_for_gnn(w_graph_attributes)
+    gnn_df.to_csv(gnn_dat_out, index=False)
+    return gnn_df
+
 
 def main():
     # Create argument parser
-    parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
+    parser = argparse.ArgumentParser(description='Calcuate graph metadata for an ALB instance')
     
     # Add arguments
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb pickle dataset')
@@ -184,7 +200,7 @@ def main():
     
     # Validate input
 
-    results = generate_edge_data_from_pickle( pickle_instance_fp = args.filepath, pool_size=args.n_processes )
+    results = generate_graph_data_from_pickle( pickle_instance_fp = args.filepath, pool_size=args.n_processes )
     # Process the range
     
     results_df = pd.DataFrame(results)

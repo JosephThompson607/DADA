@@ -1,7 +1,7 @@
 import networkx as nx
 import numpy as np
 import pandas as pd
-
+import time
 
 
 def calculate_order_strength(dag):
@@ -310,7 +310,7 @@ def get_graph_metrics(SALBP_instance):
 def generate_graph_metrics(dag):
     """
     Generate the graph metrics of a directed acyclic graph (DAG)."""
-    
+    start_time = time.time()
     # Calculate the order strength of the DAG
     order_strength = calculate_order_strength(dag)
 
@@ -332,8 +332,7 @@ def generate_graph_metrics(dag):
     # Calculate the number of chain nodes and their average length
     n_chains, avg_length, nodes_in_chains = chain_stats(dag)
     n_isolated_nodes = get_n_isolated_nodes(dag)
-    print("number of isolated nodes", n_isolated_nodes)
-    print("n nodes", dag.number_of_nodes()) 
+    end_time = time.time() - start_time
     res_dict = {
         'order_strength': order_strength,
         'average_number_of_immediate_predecessors': aip,
@@ -353,7 +352,8 @@ def generate_graph_metrics(dag):
         'share_of_isolated_nodes': n_isolated_nodes / dag.number_of_nodes(),
         'n_tasks_without_predecessors': get_n_tasks_without_predecessors(dag),
         'share_of_tasks_without_predecessors': get_n_tasks_without_predecessors(dag) / dag.number_of_nodes(),
-        'avg_tasks_per_stage': dag.number_of_nodes() / get_n_stages(dag)
+        'avg_tasks_per_stage': dag.number_of_nodes() / get_n_stages(dag),
+        'graph_feature_time': end_time
     }
     return res_dict
 

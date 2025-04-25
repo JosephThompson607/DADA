@@ -3,7 +3,7 @@ import networkx as nx
 import random
 import pandas as pd
 
-
+import time
 
 
 def get_all_positional_weight(G, key="task_time"):
@@ -142,6 +142,7 @@ def get_longest_chain_for_edge(longest_chains_to, longest_chains_from, edge):
 
 def get_edge_data(instance, alb):
     '''Gets the data for all of the edges for a given alb instance'''
+    start_time = time.time()
     edge_list = []
     G = nx.DiGraph()
     G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
@@ -152,7 +153,9 @@ def get_edge_data(instance, alb):
     longest_chains_to, longest_chains_from = longest_weighted_chains(G)
     edge_weights = get_edge_neighbor_max_min_avg_std(G)
     walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
+
     for idx, edge in enumerate(alb['precedence_relations']):
+
         neighborhood_info = edge_weights[tuple(edge)]
 
         chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
@@ -174,7 +177,8 @@ def get_edge_data(instance, alb):
         #converts parent_walk_data to a dictionary
         parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
         child_pos_weight = positional_weights[edge[1]]
-        edge_list.append({'instance': instance, 'edge': edge, 'idx': idx, 'parent_weight':parent_weight,'parent_pos_weight': parent_pos_weight,'child_weight':child_weight, 'child_pos_weight': child_pos_weight, 'neighborhood_min': neighborhood_info['min'], 'neighborhood_max': neighborhood_info['max'], 'neighborhood_avg': neighborhood_info['avg'], 'neighborhood_std': neighborhood_info['std'], 'parent_in_degree': parent_in_degree, 'parent_out_degree': parent_out_degree, 'child_in_degree': child_in_degree, 'child_out_degree': child_out_degree, 'chain_avg': chain_avg, 'chain_min': chain_min, 'chain_max': chain_max, 'chain_std': chain_std, **parent_walk_data})
+        end_time = time.time() - start_time
+        edge_list.append({'instance': instance, 'edge': edge, 'idx': idx, 'parent_weight':parent_weight,'parent_pos_weight': parent_pos_weight,'child_weight':child_weight, 'child_pos_weight': child_pos_weight, 'neighborhood_min': neighborhood_info['min'], 'neighborhood_max': neighborhood_info['max'], 'neighborhood_avg': neighborhood_info['avg'], 'neighborhood_std': neighborhood_info['std'], 'parent_in_degree': parent_in_degree, 'parent_out_degree': parent_out_degree, 'child_in_degree': child_in_degree, 'child_out_degree': child_out_degree, 'chain_avg': chain_avg, 'chain_min': chain_min, 'chain_max': chain_max, 'chain_std': chain_std, 'edge_data_time':end_time, **parent_walk_data})
     return edge_list
 
 
@@ -211,7 +215,7 @@ def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time'):
         topological_sorts.append({'sorted_nodes': top_sort, 'weights': weights, 'n_runs': n_runs})
     return topological_sorts
 
-def random_walks_ALB(G, num_walks=2, walk_length=3):
+def random_walks_ALB(G, num_walks, walk_length):
     '''performs a random walk on each node. Note that the graph becomes undirected'''
     #transforms the graph into an undirected graph
     G = G.to_undirected()
@@ -243,6 +247,8 @@ def random_walks_ALB(G, num_walks=2, walk_length=3):
 
 def generate_walk_stats_ALB(G, num_walks=5, walk_length=10):
     '''generates statistics for random walks performed on each node of graph G'''
+    #Starts timer
+    start_time = time.time()
     walks = random_walks_ALB(G, num_walks, walk_length)
     #For each node, combines the nodes_visited and task_times lists
     walk_df = pd.DataFrame(walks)
@@ -254,6 +260,7 @@ def generate_walk_stats_ALB(G, num_walks=5, walk_length=10):
     walk_stats['rw_mean'] = walk_stats['all_task_times'].apply(lambda x: np.mean(x))
     walk_stats['rw_std'] = walk_stats['all_task_times'].apply(lambda x: np.std(x))
     walk_stats['rw_n_unique_nodes'] = walk_stats['all_nodes_visited'].apply(lambda x: len(set(x)))
+    walk_stats['rw_elapsed_time'] = time.time() - start_time
     #drops all_nodes_visited and all_task_times columns
     walk_stats = walk_stats.drop(['all_nodes_visited', 'all_task_times'], axis=1)
     return walk_stats
