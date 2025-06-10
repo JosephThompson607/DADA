@@ -22,6 +22,8 @@ from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle
 import subprocess
 import pandas as pd
 from copy import deepcopy
+import ILS_ALBP as ils 
+import time
 
 def random_task_time_change(SALBP_dict, multiplier = 1.5):
     """Increases a random task time by 1"""
@@ -304,6 +306,132 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
             results.append(result)
 
     return results
+
+
+def ils_call(cycle_time, tasks_times_list, precedence_list, 
+                       max_iterations=1000, operation_probs=0.5, 
+                       show_verbose=False, init_sol=None):
+    """
+    Uses ils to generate a SALBP solution
+    
+    Parameters:
+    -----------
+    cycle_time : int
+        Maximum time allowed per workstation
+    tasks_times_list : list of int
+        Processing time for each task
+    precedence_list : list of list of int
+        Precedence constraints as [predecessor, successor] pairs
+    max_iterations : int, optional
+        Maximum iterations for the algorithm (default: 1000)
+    operation_probs : float, optional
+        Operation probabilities parameter (default: 0.5)
+    show_verbose : bool, optional
+        Whether to show verbose output (default: False)
+    init_sol : list of int, optional
+        Initial solution if available (default: None)
+    
+    Returns:
+    --------
+    ALBPSolution or None
+        The solution object if successful, None if error occurs
+    """
+    
+    if init_sol is None:
+        init_sol = []
+    
+    N = len(tasks_times_list)
+    
+    try:
+        solution = ils.ils_solve_SALBP1(
+            C=cycle_time,
+            N=N,
+            task_times=tasks_times_list,
+            raw_precedence=precedence_list,
+            max_iter=max_iterations,
+            op_probs=operation_probs,
+            verbose=show_verbose,
+            initial_solution=init_sol
+        )
+        
+        if show_verbose:
+            print(f"Successfully solved SALBP1 with {N} tasks and cycle time {cycle_time}")
+
+        return solution
+
+    except Exception as e:
+        print(f"Error solving SALBP1: {e}")
+        return None
+        
+        
+
+
+
+
+def ils_bbr_solve_edges(alb_dict, ex_fp, out_fp, branch=1, method=ils_call):
+    SALBP_dict_orig = alb_dict
+    orig_prec = len(alb_dict['precedence_relations'])
+    instance_fp = SALBP_dict_orig['name']
+    results = []
+    # Extract instance name from file path
+    instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+
+    if not os.path.exists(out_fp):
+         os.makedirs(out_fp)
+    print("running: ", instance_name, " saving to output ", out_fp)
+    # Use a unique temporary ALB file per process
+    
+    start = time.time()
+    solution = ils.ils_solve_SALBP1(
+            C=C,
+            N=N,
+            task_times=task_times,
+            raw_precedence=raw_precedence,
+            max_iter=max_iter,
+            op_probs=op_probs,
+            verbose=verbose,
+            initial_solution=initial_solution
+        )
+        
+    end = time.time()
+  
+    orig_prob = {
+        "instance": instance_name,
+        "precedence_relation": "None",
+        "nodes": "SALBP_original",
+        "no_stations": solution.n_stations,
+        "original_n_precedence_constraints": orig_prec,
+      #  "optimal": "na",
+        "cpu": time,
+        #"bin_lb": bin_lb
+    }
+    results.append(orig_prob)
+    save_backup(out_fp+instance_name + ".csv", orig_prob)
+    #Tracking if instance autocompleted because bp=salbp and setting defaults
+    cpu = -1 
+    no_stations = salbp_sol
+
+    #proceeds to precedence constraint removal, if bin_lb != no stations
+    for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+        print("removing edge: ", relation)
+        SALBP_dict = deepcopy(SALBP_dict_orig)
+        SALBP_dict = precedence_removal(SALBP_dict, j)
+        
+        result = {
+            "instance": instance_name,
+            "precedence_relation": j,
+            "nodes": relation,
+            "no_stations": no_stations,
+            "original_n_precedence_constraints": orig_prec,
+            "optimal": optimal,
+            "cpu": cpu,
+            "bin_lb": bin_lb
+        }
+        save_backup(out_fp+instance_name + ".csv", result)
+        results.append(result)
+
+    return results
+
 
 def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4, branch=1):
     with multiprocessing.Pool(pool_size) as pool:
