@@ -48,12 +48,13 @@ def parse_alb_results2(file_content):
     
     # Parse the file
     in_solution = False
-    
+    print("all lines:  " ,lines , "\n")
     for line in lines:
         line = line.strip()
         
         # Look for the results line with verified_optimality, value, and cpu
         if "verified_optimality" in line and "value" in line and "cpu" in line:
+            print("this is the line: ",  line)
             # Parse the line: "verified_optimality = 1; value = 29; cpu = 10.17"
             parts = line.split(';')
             
@@ -73,9 +74,6 @@ def parse_alb_results2(file_content):
             
         # If we're in the solution section and hit a non-numeric line, we're done
         if in_solution:
-            if line and not line[0].isdigit():
-                break
-            
             # Parse solution pairs
             if line and '\t' in line:
                 parts = line.split('\t')
@@ -101,6 +99,7 @@ def salbp1_bbr_call(salbp_dict,ex_fp, branch):
         write_to_alb(salbp_dict, temp_alb_path)
         output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         results = parse_alb_results2(output.stdout.decode("utf-8"))
+        print("results", results)
     return results
 
 
