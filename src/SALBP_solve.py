@@ -176,9 +176,9 @@ def save_backup(backup_name, result):
     intermediate = pd.DataFrame([result])
     my_file = Path(backup_name)
     if my_file.is_file():
-        intermediate.to_csv(backup_name, mode='a', header=False)
+        intermediate.to_csv(backup_name, mode='a', header=False, index=False)
     else:
-        intermediate.to_csv(backup_name)
+        intermediate.to_csv(backup_name, index=False)
     
 def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_material/MMABPWW/SALBP_benchmark/small data set_n=20/" ,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb", instance_name = "instance_n=20_", ext = ".alb", start=1, stop = 300, backup_name = f"SALBP_edge_solutions.csv"):
     results = []
@@ -475,6 +475,7 @@ def generate_results_from_pickle(fp  ,out_fp, res_df = None,  ex_fp = "../BBR-fo
             alb_files = alb_files[start:stop]
         results =  generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch=branch)
     return results
+
 
 
 
