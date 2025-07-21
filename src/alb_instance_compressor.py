@@ -25,6 +25,12 @@ def get_instance_name(salbp_dict):
     instance_name = str(salbp_dict['name']).split('/')[-1].split('.')[0]
     return instance_name
 
+
+def parse_fp_to_name(fp):
+    '''Processes pickled instnaces'''
+    instance_name = str(fp).split('/')[-1].split('.')[0]
+    return instance_name
+
 def open_salbp_pickle_as_dict(fp):
     with open(fp, 'rb') as f:
         alb_files = pickle.load(f)
@@ -46,44 +52,58 @@ def open_multi_pickles_as_dict(pickles_fp_list):
         all_instances[pickle_name]=open_salbp_pickle_as_dict(fp)
     return all_instances
 
+import re
+import sys
 
 def parse_alb(alb_file_name):
     """Reads assembly line balancing instance .alb file, returns dictionary with the information"""
     parse_dict = {}
-    alb_file = open(alb_file_name).read()
-    # Get number of tasks
-    num_tasks = re.search("<number of tasks>\n(\\d*)", alb_file)
-    # If the number of tasks is not found, return None
-    if num_tasks is None:
+    
+    with open(alb_file_name, "r") as f:
+        alb_file = f.read()
+
+    # Number of tasks
+    num_tasks = re.search(r"<number of tasks>\s*(\d+)", alb_file, re.IGNORECASE)
+    if not num_tasks:
         print(f"Error: Number of tasks not found in {alb_file_name}", file=sys.stderr)
         return None
     parse_dict["num_tasks"] = int(num_tasks.group(1))
 
-    # Get cycle time
-    cycle_time = re.search("<cycle time>\n(\\d*)", alb_file)
+    # Cycle time
+    cycle_time = re.search(r"<cycle time>\s*(\d+)", alb_file, re.IGNORECASE)
+    if not cycle_time:
+        print(f"Error: Cycle time not found in {alb_file_name}", file=sys.stderr)
+        return None
     parse_dict["cycle_time"] = int(cycle_time.group(1))
 
-    # Order Strength
-    # order_strength = re.search("<order strength>\n(\\d*,\\d*)", alb_file)
-
-    # if order_strength is  not None:
-    #     order_strength = re.search("<order strength>\n(\\d*.\\d*)", alb_file)
-    #     parse_dict["original_order_strength"] = float(order_strength.group(1))
-
-    # Task_times
-    task_times = re.search("<task times>(.|\n)+?<", alb_file)
-
-    # Get lines in this regex ignoring the first and last 2
-    task_times = task_times.group(0).split("\n")[1:-2]
-    task_times = {task.split()[0]: int(task.split()[1]) for task in task_times}
+    # Task times
+    task_times_block = re.search(r"<task times>(.+?)<", alb_file, re.DOTALL | re.IGNORECASE)
+    if not task_times_block:
+        print(f"Error: Task times not found in {alb_file_name}", file=sys.stderr)
+        return None
+    task_lines = task_times_block.group(1).strip().splitlines()
+    task_times = {}
+    for line in task_lines:
+        parts = line.strip().split()
+        if len(parts) >= 2:
+            task_times[parts[0]] = int(parts[1])
     parse_dict["task_times"] = task_times
 
     # Precedence relations
-    precedence_relations = re.search("<precedence relations>(.|\n)+?<", alb_file)
-    precedence_relations = precedence_relations.group(0).split("\n")[1:-2]
-    precedence_relations = [task.split(",") for task in precedence_relations]
+    precedence_block = re.search(r"<precedence relations>(.+?)<", alb_file, re.DOTALL | re.IGNORECASE)
+    if not precedence_block:
+        print(f"Error: Precedence relations not found in {alb_file_name}", file=sys.stderr)
+        return None
+    precedence_lines = precedence_block.group(1).strip().splitlines()
+    precedence_relations = []
+    for line in precedence_lines:
+        parts = [p.strip() for p in line.strip().split(",") if p.strip()]
+        if parts:
+            precedence_relations.append(parts)
     parse_dict["precedence_relations"] = precedence_relations
+
     return parse_dict
+
 
 #function that returns names of all files in a directory with a given extension
 def get_instance_list(directory, keep_directory_location = True,  extension='.alb'):

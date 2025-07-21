@@ -18,12 +18,13 @@ from multiprocessing.dummy import Pool as ThreadPool
 import multiprocessing
 import tempfile
 import glob
-from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle
+from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle, get_instance_name
 import subprocess
 import pandas as pd
 from copy import deepcopy
 import ILS_ALBP as ils 
 import time
+from functools import partial
 
 def random_task_time_change(SALBP_dict, multiplier = 1.5):
     """Increases a random task time by 1"""
@@ -208,6 +209,29 @@ def generate_results(fp = "/Users/letshopethisworks2/Documents/phd_paper_materia
         results.append(result)
     return results
 
+def run_simple_alb_ils(inst):
+    '''Runs ils on a .alb file'''
+    
+    alb = parse_alb(inst)
+    alb['instance'] = inst.split("/")[-1].split(".")[0]
+    results = run_alb_ils_dict(alb)
+    return 
+
+def run_alb_ils_dict(alb_dict, max_iterations):
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils_call(cycle_time=C, tasks_times_list= t_times, precedence_list=precs, max_iterations=max_iterations)
+    end = time.time()- start
+
+    return {
+            "instance":alb_dict['instance'],
+            "n_stations": results.n_stations,
+            "run_time": end}
+
+
 
 # def generate_one_instance_results(alb_dict, ex_fp):
 #     results = []
@@ -307,6 +331,13 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
 
     return results
 
+def use_ils_on_albs(instance_dicts, pool_size =4, max_iterations = 20000):
+    
+    
+    with multiprocessing.Pool(pool_size) as pool:
+        partial_func = partial(run_alb_ils_dict, max_iterations = max_iterations)
+        results = pool.map(partial_func, instance_dicts)
+    return results
 
 def ils_call(cycle_time, tasks_times_list, precedence_list, 
                        max_iterations=1000, operation_probs=0.5, 
