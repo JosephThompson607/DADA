@@ -48,13 +48,11 @@ def parse_alb_results2(file_content):
     
     # Parse the file
     in_solution = False
-    print("all lines:  " ,lines , "\n")
     for line in lines:
         line = line.strip()
         
         # Look for the results line with verified_optimality, value, and cpu
         if "verified_optimality" in line and "value" in line and "cpu" in line:
-            print("this is the line: ",  line)
             # Parse the line: "verified_optimality = 1; value = 29; cpu = 10.17"
             parts = line.split(';')
             
@@ -79,9 +77,9 @@ def parse_alb_results2(file_content):
                 parts = line.split('\t')
                 if len(parts) == 2:
                     try:
-                        first_num = int(parts[0]) - 1  # Convert to 0-based index
+                        #first_num = int(parts[0]) - 1  # Convert to 0-based index
                         second_num = int(parts[1])
-                        solution_list.append([first_num, second_num])
+                        solution_list.append( second_num)
                     except ValueError:
                         continue
     
@@ -99,46 +97,53 @@ def salbp1_bbr_call(salbp_dict,ex_fp, branch):
         write_to_alb(salbp_dict, temp_alb_path)
         output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         results = parse_alb_results2(output.stdout.decode("utf-8"))
-        print("results", results)
     return results
 
 
-def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=15):
-    print("solving salbp2: using vdls for starting heuristic")
+def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls=True):
+    
     start = time.time()
     task_times = [task_time for (_, task_time) in salbp_dict['task_times'].items() ]
     raw_precedence = [[int(parent), int(child)] for (parent, child) in salbp_dict['precedence_relations']]
     lb = ils.calc_salbp_2_lbs(task_times, n_stations)
     orig_lb = lb
-    vdls_sol = ils.vdls_solve_salbp2(
-    S=n_stations,
-    N=salbp_dict['num_tasks'],
-    task_times=task_times,
-    raw_precedence=raw_precedence,
-    time_limit = vdls_time_limit,
-            )
-    ub = vdls_sol.cycle_time
-    print("VDLS solution cycle time: ", ub, " starting search with bbr")
-    best_sol = {"cycle_time": ub, "task_assignments":  vdls_sol.task_assignment}
-    a0 = 0
+    if use_vdls:
+        print("solving salbp2: using vdls for starting heuristic")
+        vdls_sol = ils.vdls_solve_salbp2(
+        S=n_stations,
+        N=salbp_dict['num_tasks'],
+        task_times=task_times,
+        raw_precedence=raw_precedence,
+        time_limit = vdls_time_limit,
+                )
+        ub = vdls_sol.cycle_time
+        print("VDLS solution cycle time: ", ub, " starting search with bbr")
+        best_sol = {"cycle_time": ub, "task_assignments":  vdls_sol.task_assignment}
+    else:
+        ub = ils.calc_salbp_2_ub(task_times, n_stations)
+        best_sol = {"cycle_time": ub, "task_assignments":  None}
+    a0 = 0 #Fibonnacci search variables
     a1 = 1
     while lb < ub:
         print("current lower bound", lb, "current upper bound", ub)
         test_salbp_dict = deepcopy(salbp_dict)
         test_salbp_dict["cycle_time"] = lb + a0
-        results = salbp1_bbr_call(salbp_dict,ex_fp, branch)
+        results = salbp1_bbr_call(test_salbp_dict,ex_fp, branch)
+        print("This was the calculation results", results)
         if results["value"] is not None and results["value"] <= n_stations:
             ub = test_salbp_dict["cycle_time"]
             best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
-            a0 = 0
+            a0 = 0 #Restarts search at best lower bound
             a1 = 1
 
             
         else:
-            lb += a0
-            a3 = a1 + a0
+            lb =test_salbp_dict["cycle_time"]+1 #Did not get a valid solution, so the lower bound must at least be one larger
+            a2 = a1 + a0 #Increases the step size for search
             a0 = a1
-            a1 = a3
+            a1 = a2
+            
+            
     best_sol['time'] = time.time() - start
     best_sol['bin_salbp2_lb'] = orig_lb
     return best_sol
@@ -260,7 +265,7 @@ def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=15):
 
 def main():
     test_albp = parse_alb('test.alb')
-    result = bbr_salbp2("../BBR-for-SALBP1/SALB/SALB/salb",test_albp, 1, 20, vdls_time_limit=15)
+    result = bbr_salbp2("../BBR-for-SALBP1/SALB/SALB/salb",test_albp, 1, n_stations=15, vdls_time_limit=5)
     print(result)
 
     # Create argument parser
