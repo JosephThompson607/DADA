@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import SMOTE
+#from imblearn.over_sampling import SMOTE
 import pandas as pd
 import numpy as np
 from sklearn.tree import plot_tree

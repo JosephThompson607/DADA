@@ -1,5 +1,10 @@
 import glob
 import os
+import sys
+src_path = os.path.abspath("src")
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
 import pandas as pd
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,26 +15,46 @@ from metrics.graph_features import *
 from metrics.time_metrics import *
 import multiprocessing
 
-
 #FEATURE GENERATION FROM GRAPH
-def alb_to_edge_data(alb_instance):
+def alb_to_graph_data(alb_instance):
     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
     print("processing instance", instance)
     alb_dag = make_alb_digraph(alb_instance)
     time_metrics = get_time_stats(alb_instance, C=1000)
  
     graph_metrics = get_graph_metrics(alb_instance)
-    edge_data = {'instance':instance, **time_metrics, **graph_metrics}
+    graph_data = {'instance':instance, **time_metrics, **graph_metrics}
+    return graph_data
+
+
+
+def generate_graph_data_from_pickle(pickle_instance_fp, pool_size=4 ):
+    alb_instances = open_salbp_pickle(pickle_instance_fp)
+    with multiprocessing.Pool(pool_size) as pool:
+        edge_data = pool.map(alb_to_graph_data, alb_instances)
+    print(edge_data)
+    graph_info_df = pd.DataFrame(edge_data)
+    return graph_info_df
+
+
+
+#FEATURE GENERATION FROM GRAPH
+def alb_to_edge_data(alb_instance):
+    instance_name = str(alb_instance['name']).split('/')[-1].split('.')[0]
+    print("processing instance", instance_name)
+
+
+    edge_data = get_edge_data(instance_name, alb_instance)
+    edge_data = pd.DataFrame(edge_data)
     return edge_data
 
 
 
-def generate_graph_data_from_pickle(pickle_instance_fp = "raw/pkl_datasets/n_50_bottleneck.pkl", pool_size=4 ):
+def generate_edge_data_from_pickle(pickle_instance_fp, pool_size=4 ):
     alb_instances = open_salbp_pickle(pickle_instance_fp)
     with multiprocessing.Pool(pool_size) as pool:
         edge_data = pool.map(alb_to_edge_data, alb_instances)
-    print(edge_data)
-    edge_info_df = pd.DataFrame(edge_data)
+    edge_info_df = pd.concat(edge_data)
     return edge_info_df
 
 
@@ -122,7 +147,6 @@ def check_max_v_average(old_df):
     station_averages.columns = ['instance', 'average_no_stations']
     #merges the average number of stations with the original dataframe
     df = pd.merge(df, station_averages, on='instance', how='left')
-    print(df.columns)
     df['yellow_flag'] = df['no_stations'] > df['average_no_stations'] + 1
     print("Warning, the following instances had bad max bounds compared to the average number of stations,", df[df['yellow_flag']==True]['instance'].unique())
     return df
@@ -185,6 +209,41 @@ def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out
     gnn_df.to_csv(gnn_dat_out, index=False)
     return gnn_df
 
+def get_salbp_ub(my_df):
+    my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
+    orig_res = my_df[my_df['nodes']=="SALBP_original"]
+    orig_res = orig_res[['instance','no_stations']]
+    orig_res.rename(columns={'no_stations':'orig_stations'}, inplace=True)
+    my_df = my_df[~(my_df['nodes']=="SALBP_original")]
+    my_df = pd.merge(my_df, orig_res, how="left", on='instance' )
+    return my_df
+def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_out, ml_dat_out, remove_incomplete= True, tolerance=0):
+    ''' makes data appropiate for the DataSet used by the GNN. It needs the SALBP solver results, and graph meta data df before calculating the rest'''
+    my_df = pd.read_csv(result_csv)
+    my_df = get_salbp_ub(my_df)
+
+    if remove_incomplete:
+        instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index()
+        instance_counts.rename(columns={"precedence_relation":"row_counts"}, inplace=True)
+        my_df = pd.merge(my_df, instance_counts, how="left")
+        removed = my_df[my_df["row_counts"] +tolerance < my_df["original_n_precedence_constraints"]]
+        print("removing: ", removed['instance'].unique())
+        my_df = my_df[my_df["row_counts"] +tolerance >= my_df["original_n_precedence_constraints"]]
+        
+        my_df.drop(columns={'row_counts'}, inplace=True)
+    #my_df = pd.read_csv()
+    graph_data = pd.read_csv(graph_data_df_fp)
+    graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
+    edge_data = pd.read_csv(edge_data_df_fp)
+    edge_data = edge_data.loc[:, ~edge_data.columns.str.contains("^Unnamed")]
+    graph_data = pd.merge(graph_data, edge_data, on="instance", how="left")
+    my_df = pd.merge(my_df, graph_data, on = 'instance', how="left")
+    my_df = add_min_and_max(my_df)
+    my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'}, inplace=True)
+    my_df.to_csv(ml_dat_out, index=False)
+    my_df = make_df_for_gnn(my_df)
+    my_df.to_csv(gnn_dat_out, index=False)
+    return my_df
 
 def main():
     # Create argument parser
@@ -194,13 +253,18 @@ def main():
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb pickle dataset')
     parser.add_argument('--output_fp', type=str, required=True, help='filepath for results, if no error')
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
+    parser.add_argument('--type',type=str, required=True, help='generating graph or edge data')
     
     # Parse arguments
     args = parser.parse_args()
     
     # Validate input
-
-    results = generate_graph_data_from_pickle( pickle_instance_fp = args.filepath, pool_size=args.n_processes )
+    if args.type == 'graph':
+        results = generate_graph_data_from_pickle( pickle_instance_fp = args.filepath, pool_size=args.n_processes )
+    elif args.type == 'edge':
+        results = generate_edge_data_from_pickle(pickle_instance_fp = args.filepath, pool_size=args.n_processes )
+    else:
+        raise ValueError("Must select 'graph' or 'edge' for the type argument")
     # Process the range
     
     results_df = pd.DataFrame(results)
