@@ -15,6 +15,8 @@ from metrics.graph_features import *
 from metrics.time_metrics import *
 import multiprocessing
 
+import dask.dataframe as dd
+
 #FEATURE GENERATION FROM GRAPH
 def alb_to_graph_data(alb_instance):
     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
@@ -160,11 +162,11 @@ def run_basic_checks(df, filter=True):
     df = check_max_v_average(df)
     return df
 
-def check_n_edges(df, filter=True):
+def check_n_edges(df, filter=True, edge_column ='n_edges'):
     '''Makes sure the df going to the GNN has the length of is_less_max equal to n_edges'''
-    df['n_edges'] = df['n_edges'].astype(int)
+    df[edge_column] = df[edge_column].astype(int)
     station_lengths = df['no_stations'].apply(len)
-    df['red_flag'] = station_lengths != df['n_edges']
+    df['red_flag'] = station_lengths != df[edge_column]
     print("Warning, the following instances are missing edge data,", df[df['red_flag']==True]['instance'].unique())
     if filter:
         print("Removing instances with missing edge data")
@@ -173,10 +175,10 @@ def check_n_edges(df, filter=True):
     return df
 
 def add_min_and_max(df):
-    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"])
+    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"]).compute()
     min_and_max.reset_index(inplace = True)
     # #merges min and max with the tasks_50 dataframe
-    df = pd.merge(df, min_and_max, on = "instance")
+    df = dd.merge(df, min_and_max, on = "instance")
     return df
 
 def make_df_for_gnn(old_df):
@@ -203,6 +205,7 @@ def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out
     graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
     w_graph_attributes = pd.merge(my_df, graph_data, on = 'instance', how="left")
     w_graph_attributes = add_min_and_max(w_graph_attributes)
+    
     w_graph_attributes.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'}, inplace=True)
     w_graph_attributes.to_csv(ml_dat_out, index=False)
     gnn_df = make_df_for_gnn(w_graph_attributes)
@@ -211,38 +214,43 @@ def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out
 
 def get_salbp_ub(my_df):
     my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
-    orig_res = my_df[my_df['nodes']=="SALBP_original"]
+    orig_res = my_df[my_df['nodes']=="SALBP_original"].compute()
     orig_res = orig_res[['instance','no_stations']]
-    orig_res.rename(columns={'no_stations':'orig_stations'}, inplace=True)
+    orig_res.rename(columns={'no_stations':'orig_stations'},inplace=True)
     my_df = my_df[~(my_df['nodes']=="SALBP_original")]
-    my_df = pd.merge(my_df, orig_res, how="left", on='instance' )
+    my_df = dd.merge(my_df, orig_res, how="left", on='instance' )
     return my_df
+
+
+
 def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_out, ml_dat_out, remove_incomplete= True, tolerance=0):
     ''' makes data appropiate for the DataSet used by the GNN. It needs the SALBP solver results, and graph meta data df before calculating the rest'''
-    my_df = pd.read_csv(result_csv)
+    my_df = dd.read_csv(result_csv)
     my_df = get_salbp_ub(my_df)
-
     if remove_incomplete:
-        instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index()
+        instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index().compute()
         instance_counts.rename(columns={"precedence_relation":"row_counts"}, inplace=True)
-        my_df = pd.merge(my_df, instance_counts, how="left")
+        my_df = dd.merge(my_df, instance_counts, how="left")
         removed = my_df[my_df["row_counts"] +tolerance < my_df["original_n_precedence_constraints"]]
-        print("removing: ", removed['instance'].unique())
+        print("removing: ", removed['instance'].unique().compute())
         my_df = my_df[my_df["row_counts"] +tolerance >= my_df["original_n_precedence_constraints"]]
-        
-        my_df.drop(columns={'row_counts'}, inplace=True)
+        my_df = my_df.drop(columns={'row_counts'})
     #my_df = pd.read_csv()
-    graph_data = pd.read_csv(graph_data_df_fp)
+    graph_data = dd.read_csv(graph_data_df_fp)
     graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
-    edge_data = pd.read_csv(edge_data_df_fp)
+    
+    edge_data = dd.read_csv(edge_data_df_fp)
     edge_data = edge_data.loc[:, ~edge_data.columns.str.contains("^Unnamed")]
-    graph_data = pd.merge(graph_data, edge_data, on="instance", how="left")
-    my_df = pd.merge(my_df, graph_data, on = 'instance', how="left")
+    graph_data = dd.merge(graph_data, edge_data, on="instance", how="right")
+    my_df = dd.merge(my_df, graph_data, left_on = ['instance','precedence_relation'], right_on = ['instance','idx'], how="inner")
     my_df = add_min_and_max(my_df)
-    my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'}, inplace=True)
-    my_df.to_csv(ml_dat_out, index=False)
-    my_df = make_df_for_gnn(my_df)
-    my_df.to_csv(gnn_dat_out, index=False)
+    my_df = my_df.drop(columns='idx')
+    my_df =my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'})
+    my_df.to_csv(ml_dat_out, index=False,  single_file=True)
+    # my_df = my_df.compute()
+    # my_df = make_df_for_gnn(my_df)
+
+    #my_df.to_csv(gnn_dat_out, index=False)
     return my_df
 
 def main():
