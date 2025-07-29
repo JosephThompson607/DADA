@@ -15,7 +15,7 @@ from metrics.graph_features import *
 from metrics.time_metrics import *
 import multiprocessing
 
-import dask.dataframe as dd
+
 
 #FEATURE GENERATION FROM GRAPH
 def alb_to_graph_data(alb_instance):
@@ -61,7 +61,7 @@ def generate_edge_data_from_pickle(pickle_instance_fp, pool_size=4 ):
 
 
 #PROCESSING SALBP OUTPUT
-def process_file(filename):
+def process_file(filename, tolerance = 2):
     try:
         df = pd.read_csv(filename, index_col=None, header=0)
         salbp_upper_df = df.iloc[[0]]
@@ -83,7 +83,7 @@ def process_file(filename):
             return None, {"instance": filename.name, "reason": "upper bound mismatch"}
         if any(df["no_stations"] < df["bin_lb"].astype(int)):
             return None, {"instance": filename.name, "reason": "lower bound mismatch"}
-        if len(df.index) != df["original_n_precedence_constraints"].iloc[0]:
+        if len(df.index) + tolerance < df["original_n_precedence_constraints"].iloc[0]:
             return None, {"instance": filename.name, "reason": "missing_edge"}
 
         return df, None
@@ -175,10 +175,10 @@ def check_n_edges(df, filter=True, edge_column ='n_edges'):
     return df
 
 def add_min_and_max(df):
-    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"]).compute()
+    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"])
     min_and_max.reset_index(inplace = True)
     # #merges min and max with the tasks_50 dataframe
-    df = dd.merge(df, min_and_max, on = "instance")
+    df = pd.merge(df, min_and_max, on = "instance")
     return df
 
 def make_df_for_gnn(old_df):
@@ -212,46 +212,46 @@ def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out
     gnn_df.to_csv(gnn_dat_out, index=False)
     return gnn_df
 
-def get_salbp_ub(my_df):
-    my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
-    orig_res = my_df[my_df['nodes']=="SALBP_original"].compute()
-    orig_res = orig_res[['instance','no_stations']]
-    orig_res.rename(columns={'no_stations':'orig_stations'},inplace=True)
-    my_df = my_df[~(my_df['nodes']=="SALBP_original")]
-    my_df = dd.merge(my_df, orig_res, how="left", on='instance' )
-    return my_df
-
-
 
 def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_out, ml_dat_out, remove_incomplete= True, tolerance=0):
     ''' makes data appropiate for the DataSet used by the GNN. It needs the SALBP solver results, and graph meta data df before calculating the rest'''
-    my_df = dd.read_csv(result_csv)
+    my_df = pd.read_csv(result_csv)
     my_df = get_salbp_ub(my_df)
     if remove_incomplete:
-        instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index().compute()
+        instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index()
         instance_counts.rename(columns={"precedence_relation":"row_counts"}, inplace=True)
-        my_df = dd.merge(my_df, instance_counts, how="left")
+        my_df = pd.merge(my_df, instance_counts, how="left")
         removed = my_df[my_df["row_counts"] +tolerance < my_df["original_n_precedence_constraints"]]
-        print("removing: ", removed['instance'].unique().compute())
+        print("removing: ", removed['instance'].unique())
         my_df = my_df[my_df["row_counts"] +tolerance >= my_df["original_n_precedence_constraints"]]
         my_df = my_df.drop(columns={'row_counts'})
     #my_df = pd.read_csv()
-    graph_data = dd.read_csv(graph_data_df_fp)
+    graph_data = pd.read_csv(graph_data_df_fp)
     graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
     
-    edge_data = dd.read_csv(edge_data_df_fp)
+    edge_data = pd.read_csv(edge_data_df_fp)
     edge_data = edge_data.loc[:, ~edge_data.columns.str.contains("^Unnamed")]
-    graph_data = dd.merge(graph_data, edge_data, on="instance", how="right")
-    my_df = dd.merge(my_df, graph_data, left_on = ['instance','precedence_relation'], right_on = ['instance','idx'], how="inner")
+    graph_data = pd.merge(graph_data, edge_data, on="instance", how="right")
+    my_df = pd.merge(my_df, graph_data, left_on = ['instance','precedence_relation'], right_on = ['instance','idx'], how="inner")
     my_df = add_min_and_max(my_df)
     my_df = my_df.drop(columns='idx')
     my_df =my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'})
-    my_df.to_csv(ml_dat_out, index=False,  single_file=True)
-    # my_df = my_df.compute()
+    my_df.to_csv(ml_dat_out, index=False)
     # my_df = make_df_for_gnn(my_df)
 
     #my_df.to_csv(gnn_dat_out, index=False)
     return my_df
+
+def get_salbp_ub(my_df):
+    my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
+    orig_res = my_df[my_df['nodes']=="SALBP_original"]
+    orig_res = orig_res[['instance','no_stations']]
+    orig_res.rename(columns={'no_stations':'orig_stations'},inplace=True)
+    my_df = my_df[~(my_df['nodes']=="SALBP_original")]
+    my_df = pd.merge(my_df, orig_res, how="left", on='instance' )
+    return my_df
+
+
 
 def main():
     # Create argument parser
