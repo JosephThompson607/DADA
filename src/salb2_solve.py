@@ -130,7 +130,10 @@ def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls
         best_sol = {"cycle_time": ub, "task_assignments":  vdls_sol.task_assignment}
     else:
         ub = min(ils.calc_salbp_2_ub(task_times, n_stations), start_ub)
-        best_sol = {"cycle_time": ub, "task_assignments":  None}
+        task_assignments = None
+        if initial_solution:
+            task_assignments = initial_solution
+        best_sol = {"cycle_time": ub, "task_assignments":  task_assignments}
     a0 = 0 #Fibonnacci search variables
     a1 = 1
     while lb < ub: #TODO add time limit
@@ -138,7 +141,6 @@ def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls
         test_salbp_dict = deepcopy(salbp_dict)
         test_salbp_dict["cycle_time"] = lb + a0
         results = salbp1_bbr_call(test_salbp_dict,ex_fp, branch)
-        print("This was the calculation results", results)
         if results["value"] is not None and results["value"] <= n_stations:
             ub = test_salbp_dict["cycle_time"]
             best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
@@ -163,17 +165,19 @@ def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls
 
 def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, vdls_time_limt = 5):
     SALBP_dict_orig = alb_dict
-
+    print(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
     results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-
-    if not os.path.exists(out_fp):
-        os.makedirs(out_fp)
+    print
+    out_path = Path(out_fp)
+    print("parents : ", str(out_path.parent))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(out_path.name):
         orig_data = pd.DataFrame()    
     else:
-        orig_data = pd.read_csv(out_fp)
+        orig_data = pd.read_csv(out_path)
     print("running: ", instance_name, " saving to output ", out_fp)
     # Use a unique temporary ALB file per process
     
@@ -194,7 +198,7 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
         }
         result_dict = {**result_dict, **metadata}
         results.append(result_dict)
-        save_backup(out_fp, result_dict)
+        save_backup(out_path, result_dict)
         #Tracking if instance autocompleted because bp=salbp and setting defaults
         cpu = -1 
         salbp2_sol = result_dict['cycle_time']
@@ -207,13 +211,13 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
         task_assignments = result_dict['task_assignments']
         cpu = -1 
         #TODO ADD OPTIMALITY CHECKS optimal = 1
+    print("orig data columns: ", orig_data.columns)
+    if not orig_data.empty:
+        orig_data = orig_data[~(orig_data["nodes"]=="SALBP_original")]
 
-    #proceeds to precedence constraint removal, if bin_lb != no stations
-    orig_data = orig_data[~(orig_data["nodes"]=="SALBP_original")]
-
-    orig_data[["parent", "child"]] = orig_data["nodes"].apply(
-                                                lambda x: pd.Series([i for i in ast.literal_eval(x)])
-                                                    )
+        orig_data[["parent", "child"]] = orig_data["nodes"].apply(
+                                                    lambda x: pd.Series([i for i in ast.literal_eval(x)])
+                                                        )
 
     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
         (inst_par, inst_chi) = relation 
@@ -236,7 +240,7 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
         print("removing edge: ", relation)
         SALBP_dict = deepcopy(SALBP_dict_orig)
         SALBP_dict = precedence_removal(SALBP_dict, j)
-        result =bbr_salbp2(ex_fp,SALBP_dict, branch, n_stations,  use_vdls=use_vdls, vdls_time_limit=vdls_time_limt, init_solution = task_assignments)
+        result =bbr_salbp2(ex_fp,SALBP_dict, branch, n_stations,  use_vdls=use_vdls, vdls_time_limit=vdls_time_limt, initial_solution = task_assignments, start_ub=salbp2_sol)
         metadata = {
             "instance": instance_name,
             "precedence_relation": j,
@@ -244,46 +248,82 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
             "original_n_precedence_constraints": orig_prec,
         }
         result = {**result, **metadata}
-        save_backup(out_fp, result)
+        save_backup(out_path, result)
         results.append(result)
 
     return results
 
-# def retry_bad_instance(instance_fp, alb_dicts, ex_fp, branch):
-#     instance_name = instance_fp.split('/')[-1].split('.')[0]  
-#     clean_up_csv(instance_fp)
-#     for alb in alb_dicts:
-#         name = str(alb['name']).split('/')[-1].split('.')[0]
-#         if name == instance_name:
-#             print("fixing ", name , " at ", instance_fp)
-#             fix_partial_result(alb, ex_fp, instance_fp, branch=branch)
 
+def generate_salb_2_results_from_dict_list(alb_files, out_fp, n_stations, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4, branch=1, use_vdls=False, vdls_time=5):
+    with multiprocessing.Pool(pool_size) as pool:
+        results = pool.starmap(salb2_solve, [(alb, ex_fp, out_fp, n_stations, branch, use_vdls, vdls_time) for alb in alb_files])
 
-# def retry_bad_instances(bad_data_fp, data_pickle, ex_fp,pool_size, branch):
-#     bad_data = pd.read_csv(bad_data_fp)
-#     alb_dicts = open_salbp_pickle(data_pickle)
-#     with multiprocessing.Pool(pool_size) as pool:
-#        pool.starmap(retry_bad_instance, [(instance, alb_dicts, ex_fp, branch) for instance in bad_data['instance']])
+    save_backup(out_fp + backup_name, results)
+    return results
 
+def generate_salbp_2_results_from_pickle(fp  ,out_fp, n_stations, res_df = None,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None , branch=1):
+    '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
+    or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
+    
+    results = []
+    #loads the pickle file
 
+    if res_df is not None:
+
+        res_df = pd.read_csv(res_df)
+        if "pickle_fp" in res_df.columns:
+            alb_files = []
+            print("not using pickle fp")
+            pickles = res_df['pickle_fp'].unique()
+            for pf in pickles:
+                alb_files +=  open_salbp_pickle(pf)
+        else:
+            alb_files = open_salbp_pickle(fp)
+        print("here is the res df", res_df.head())
+        instances = set(res_df['instance'])
+        filtered_files = []
+        for alb in alb_files:
+            name = str(alb['name']).split('/')[-1].split('.')[0]
+            if name not in instances:
+                filtered_files.append(alb)
+            else:
+                print( name, "is already in results, skipping")
+
+        results = generate_salb_2_results_from_dict_list(filtered_files, out_fp,n_stations, ex_fp, backup_name, pool_size, branch=branch)
+    else:
+        alb_files = open_salbp_pickle(fp)
+        if start is not None and stop is not None:
+            alb_files = alb_files[start:stop]
+        results =  generate_salb_2_results_from_dict_list(alb_files, out_fp,n_stations, ex_fp, backup_name, pool_size, branch=branch)
+    return results
 
 def main():
     test_albp = parse_alb('test.alb')
-    result = bbr_salbp2("../BBR-for-SALBP1/SALB/SALB/salb",test_albp, 1, n_stations=15, vdls_time_limit=1, use_vdls=True)
+    test_albp['name'] = 'testalb'
+    result = salb2_solve(test_albp,"../BBR-for-SALBP1/SALB/SALB/salb", "test/test.csv", 15, use_vdls=False)
     print(result)
 
     # Create argument parser
-    # parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
+    parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
     
     # # # Add arguments
-    # parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
-    # parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
-    # parser.add_argument('--pkl_fp', type=str, required=True, help='filepath for alb dataset')
-    # parser.add_argument('--instance_list_csv', type=str, required=True, help='list of csv instance results instances that will be solved or re-solved')
-    # parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
+    parser.add_argument('--start', type=int, required=False, help='Starting integer (inclusive)')
+    parser.add_argument('--end', type=int, required=False, help='Ending integer (inclusive)')
+    parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
+    parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
+    parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
+    parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
+    parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
+    parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
+    parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
+    parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
+    parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
+    parser.add_argument('--vdls_time', type=int, required=False, default=5, help='number of seconds for vdls initial solve')
+    parser.add_argument('--n_stations', type=int, required=True, help='number of stations for salbp-2 station constraint' )
     # # # Parse arguments
-    # args = parser.parse_args()
-    
+    args = parser.parse_args()
+    res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, n_stations=args.n_stations, res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config)
+    # Process t
     # # Validate input
 
 
