@@ -140,7 +140,7 @@ def get_longest_chain_for_edge(longest_chains_to, longest_chains_from, edge):
     return {'nodes': parent_chain['nodes'] + child_chain['nodes'][::-1], 'weights': parent_chain['weights'] + child_chain['weights'][::-1]}
 
 
-def get_edge_data(instance, alb):
+def get_edge_data(instance_name, alb):
     '''Gets the data for all of the edges for a given alb instance'''
     start_time = time.time()
     edge_list = []
@@ -176,9 +176,16 @@ def get_edge_data(instance, alb):
         parent_walk_data.drop('node', axis=1, inplace=True)
         #converts parent_walk_data to a dictionary
         parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
+        #gets child walk data
+        child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
+        #drops node from parent_walk_data
+        child_walk_data.drop('node', axis=1, inplace=True)
+        #converts parent_walk_data to a dictionary
+        child_walk_data = child_walk_data.to_dict(orient='records')[0]
+        child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
         child_pos_weight = positional_weights[edge[1]]
         end_time = time.time() - start_time
-        edge_list.append({'instance': instance, 'edge': edge, 'idx': idx, 'parent_weight':parent_weight,'parent_pos_weight': parent_pos_weight,'child_weight':child_weight, 'child_pos_weight': child_pos_weight, 'neighborhood_min': neighborhood_info['min'], 'neighborhood_max': neighborhood_info['max'], 'neighborhood_avg': neighborhood_info['avg'], 'neighborhood_std': neighborhood_info['std'], 'parent_in_degree': parent_in_degree, 'parent_out_degree': parent_out_degree, 'child_in_degree': child_in_degree, 'child_out_degree': child_out_degree, 'chain_avg': chain_avg, 'chain_min': chain_min, 'chain_max': chain_max, 'chain_std': chain_std, 'edge_data_time':end_time, **parent_walk_data})
+        edge_list.append({'instance': instance_name, 'edge': edge, 'idx': idx, 'parent_weight':parent_weight,'parent_pos_weight': parent_pos_weight,'child_weight':child_weight, 'child_pos_weight': child_pos_weight, 'neighborhood_min': neighborhood_info['min'], 'neighborhood_max': neighborhood_info['max'], 'neighborhood_avg': neighborhood_info['avg'], 'neighborhood_std': neighborhood_info['std'], 'parent_in_degree': parent_in_degree, 'parent_out_degree': parent_out_degree, 'child_in_degree': child_in_degree, 'child_out_degree': child_out_degree, 'chain_avg': chain_avg, 'chain_min': chain_min, 'chain_max': chain_max, 'chain_std': chain_std, 'edge_data_time':end_time, **parent_walk_data, **child_walk_data})
     return edge_list
 
 
