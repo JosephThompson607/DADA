@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.abspath("../src"))
 from alb_instance_compressor import *
 import ast
-
+from datetime import datetime
 
 from SALBP_solve import *
 from copy import deepcopy
@@ -46,23 +46,25 @@ def find_missing_edges(existing_edges, alb_instance):
     return missing_edges
         
         
-def make_missing_edge_df(bad_df, pkl_fp):
+def make_missing_edge_df(bad_df, pkl_fp, path = ""):
+    if len(path)>0:
+        os.chdir(path)
     print("starting")
+    new_df = []
     bad_df = bad_df[bad_df["reason"] == "missing_edge"]
     alb_df = create_pickle_df(pkl_fp)
     bad_inst, bad_fp = get_names_of_bad(bad_df)
     reduced_edges = alb_df[alb_df['instance_name'].isin(bad_inst)].copy()
     reduced_edges['save_fp'] = None
     for name, df_fp in zip(bad_inst,bad_fp):
-        existing_results = pd.read_csv("../" + df_fp)
+        existing_results = pd.read_csv( df_fp)
         existing_edges = existing_results['precedence_relation'].dropna()
         reduced_edges = reduced_edges[~((reduced_edges['instance_name'] == name) & (reduced_edges['edge_idx'].isin(existing_edges)))]
         reduced_edges.loc[reduced_edges['instance_name'] == name, 'save_fp'] = df_fp
         
-    print("Following instances in dataframe:", reduced_edges['instance_name'].unique())
+    print("Following instances in dataframe:", reduced_edges['instance_name'].unique(), " there are ", len(reduced_edges), " rows")
 
     return reduced_edges
-        
 
 def solve_edge_salbp1(edge_df_fp, df_idx,ex_fp, branch =1):
     edge_df = pd.read_csv(edge_df_fp)
@@ -111,6 +113,201 @@ def solve_edge_salbp1(edge_df_fp, df_idx,ex_fp, branch =1):
         res_df = pd.DataFrame(result)
 
         res_df.to_csv(new_csv_path, index=False)
+        
+        
+
+
+def add_new_results(orig_res_fp, new_res_folder_fp):
+    orig_res_df = pd.read_csv(orig_res_fp)
+    new_res_df = concatenate_csvs_from_directory(new_res_folder_fp, add_source_column=True)
+    sources = new_res_df['source_file']
+    print("here are the sources", sources)
+    new_res_df.drop(columns=['source_file'], inplace=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+  
+
+    new_res_df.to_csv(f"{new_res_folder_fp}collated_{timestamp}.res", index=False)
+    fixed_results = merge_and_deduplicate_dataframes(new_res_df, orig_res_df)
+    fixed_results.to_csv(orig_res_fp, index=False)
+    for source_file in sources:
+        if 'pr' in source_file:
+            try:
+                os.remove(new_res_folder_fp + "/" +source_file)
+                print(f"Deleted: {source_file}")
+            except FileNotFoundError:
+                print(f"File not found: {source_file}")
+            except Exception as e:
+                print(f"Error deleting {source_file}: {e}")
+    #return fixed_results
+
+def merge_and_deduplicate_dataframes(
+    new_df: pd.DataFrame,
+    original_df: pd.DataFrame,
+    no_stations_threshold: int = 0
+) -> pd.DataFrame:
+    """
+    Process and merge two dataframes with specific filtering and deduplication rules.
+    
+    Parameters:
+    -----------
+    new_df : pd.DataFrame
+        The new dataframe to be processed
+    original_df : pd.DataFrame
+        The original dataframe containing bin_lb values
+    no_stations_threshold : int, default 0
+        Threshold for filtering no_stations column (keeps rows >= threshold)
+    
+    Returns:
+    --------
+    pd.DataFrame
+        Combined dataframe with duplicates removed based on precedence_relation
+    
+    Raises:
+    -------
+    ValueError
+        If required columns are missing from either dataframe
+    """
+    
+    # Validate required columns
+    if 'no_stations' not in new_df.columns:
+        raise ValueError("'no_stations' column not found in new_df")
+    
+    if 'bin_lb' not in original_df.columns:
+        raise ValueError("'bin_lb' column not found in original_df")
+    
+    if 'precedence_relation' not in new_df.columns and 'precedence_relation' not in original_df.columns:
+        raise ValueError("'precedence_relation' column not found in either dataframe")
+    
+    # Step 1: Filter out rows where no_stations < threshold
+    print(f"Original new_df shape: {new_df.shape}")
+    filtered_new_df = new_df[new_df['no_stations'] >= no_stations_threshold].copy()
+    print(f"After filtering no_stations >= {no_stations_threshold}: {filtered_new_df.shape}")
+    
+    # Step 2: Add bin_lb from original_df to new_df
+    # If there's a way to match rows between dataframes, we'd need to know the key
+    # For now, assuming we want to broadcast the bin_lb values from original_df
+    if len(original_df['bin_lb'].unique()) == 1:
+        # If original_df has a single bin_lb value, broadcast it
+        filtered_new_df['bin_lb'] = original_df['bin_lb'].iloc[0]
+        print(f"Added single bin_lb value: {original_df['bin_lb'].iloc[0]}")
+
+    else:
+        # If multiple values, we need a merge key - this would need clarification
+        print("Warning: Multiple bin_lb values found. Using first value.")
+        filtered_new_df['bin_lb'] = original_df['bin_lb'].iloc[0]
+
+        
+    # Step 3: Concatenate the dataframes
+    print(f"Original_df shape: {original_df.shape}")
+    combined_df = pd.concat([filtered_new_df, original_df], ignore_index=True, sort=False)
+    print(f"Combined dataframe shape: {combined_df.shape}")
+    
+    # Step 4: Remove duplicates based on precedence_relation column
+    initial_rows = len(combined_df)
+    deduplicated_df = combined_df.drop_duplicates(subset=['precedence_relation'], keep='first')
+    final_rows = len(deduplicated_df)
+    
+    print(f"Removed {initial_rows - final_rows} duplicate rows based on 'precedence_relation'")
+    print(f"Final dataframe shape: {deduplicated_df.shape}")
+    
+    return deduplicated_df
+
+def concatenate_csvs_from_directory(
+    directory_path: Union[str, Path],
+    ignore_index: bool = True,
+    add_source_column: bool = False,
+    file_pattern: str = "*.csv"
+) -> pd.DataFrame:
+    """
+    Read all CSV files from a directory and concatenate them into a single DataFrame.
+    
+    Parameters:
+    -----------
+    directory_path : str or Path
+        Path to the directory containing CSV files
+    ignore_index : bool, default True
+        If True, reset the index in the concatenated DataFrame
+    add_source_column : bool, default False
+        If True, add a column indicating the source file for each row
+    file_pattern : str, default "*.csv"
+        File pattern to match (e.g., "*.csv", "data_*.csv")
+    
+    Returns:
+    --------
+    pd.DataFrame
+        Concatenated DataFrame from all CSV files
+    
+    Raises:
+    -------
+    ValueError
+        If directory doesn't exist or no CSV files found
+    """
+    
+    # Convert to Path object for easier handling
+    dir_path = Path(directory_path)
+    
+    # Check if directory exists
+    if not dir_path.exists():
+        raise ValueError(f"Directory does not exist: {directory_path}")
+    
+    if not dir_path.is_dir():
+        raise ValueError(f"Path is not a directory: {directory_path}")
+    
+    # Find all CSV files matching the pattern
+    csv_files = list(dir_path.glob(file_pattern))
+    
+    if not csv_files:
+        raise ValueError(f"No CSV files found in directory: {directory_path}")
+    
+    # Read and store DataFrames
+    dataframes = []
+    
+    for csv_file in csv_files:
+        try:
+            df = pd.read_csv(csv_file)
+            
+            # Add source column if requested
+            if add_source_column:
+                df['source_file'] = csv_file.name
+            
+            dataframes.append(df)
+            print(f"Successfully read: {csv_file.name} ({len(df)} rows)")
+            
+        except Exception as e:
+            print(f"Warning: Could not read {csv_file.name}: {e}")
+            continue
+    
+    if not dataframes:
+        raise ValueError("No CSV files could be successfully read")
+    
+    # Concatenate all DataFrames
+    result_df = pd.concat(dataframes, ignore_index=ignore_index, sort=False)
+    
+    print(f"\nConcatenation complete:")
+    print(f"- Files processed: {len(dataframes)}")
+    print(f"- Total rows: {len(result_df)}")
+    print(f"- Total columns: {len(result_df.columns)}")
+    
+    return result_df
+
+def file_path_to_dir_path(file_path):
+    return os.path.splitext(file_path)[0] + "/"
+
+def check_on_bad_instances(bad_csv_fp, path =""):
+    if len(path)>0:
+        os.chdir(path)
+        print("currently at", os.getcwd())
+    bad_instances = pd.read_csv(bad_csv_fp)
+    bad_instances = bad_instances['instance']
+    for instance in bad_instances:
+        try:
+            new_res_fp = file_path_to_dir_path(instance)
+            print(new_res_fp)
+            add_new_results(instance, new_res_fp)
+        except FileNotFoundError as e:
+            print(f"File not found: {new_res_fp} : {e}")
+        except Exception as e:
+            print(f"Error processing {new_res_fp}: {e}")
    
 def main():
     # Create argument parser
