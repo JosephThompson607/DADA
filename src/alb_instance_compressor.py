@@ -6,6 +6,7 @@ import glob
 import sys
 import re
 import argparse
+import pandas as pd
 
 def open_salbp_pickle(fp):
     with open(fp, 'rb') as f:
@@ -19,6 +20,19 @@ def open_salbp_pickle(fp):
     if not all(key in alb_files[0] for key in ["task_times", "precedence_relations", "cycle_time"]):
         print("Error: First dictionary in pickle file does not have the keys task_times, precedence_relations, cycle_time", file=sys.stderr)
     return alb_files
+
+def create_pickle_df(fp):
+    alb_dicts = open_salbp_pickle(fp)
+    instance_names = [str(alb['name']).split('/')[-1].split('.')[0] for alb in alb_dicts]
+    for alb, name in zip(alb_dicts, instance_names):
+        alb['instance_name'] = name
+    # Convert the updated list of dicts into a DataFrame
+    pkl_df = pd.DataFrame(alb_dicts)
+    pkl_df['precedence_relation'] = pkl_df['precedence_relations'].apply(enumerate_list)
+    pkl_df= pkl_df.explode('precedence_relation')
+    pkl_df['edge_idx'] = pkl_df['precedence_relation'].apply(lambda x: x[-1])
+    pkl_df['precedence_relation'] = pkl_df['precedence_relation'].apply(lambda x: x[:2])
+    return pkl_df
 
 def get_instance_name(salbp_dict):
     '''Processes pickled instnaces'''

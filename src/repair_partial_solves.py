@@ -35,61 +35,61 @@ def clean_up_csv(csv_fp):
     my_df.to_csv(csv_fp, index=False)
     
     
-def process_results_bad_lb(path, forgive_missing=False, forgive_lb_missmatch=False):
-    '''Processes results for when the bin pack lower bound bottom row is broken'''
+# def process_results_bad_lb(path, forgive_missing=False, forgive_lb_missmatch=False):
+#     '''Processes results for when the bin pack lower bound bottom row is broken'''
 
-    path = Path(path).expanduser()  # Expands '~'
-    all_files = list(path.glob("*.csv"))  # Finds all .csv files
-    li = []
-    bad_instances = []
-    for filename in all_files:
-        print('processing', filename)
-        clean_up_csv(filename)
-        df = pd.read_csv(filename, index_col=None, header=0)
-        if df.empty:
-            print(f"Error: {filename} was empty")
-            bad_instances.append({"instance":filename, "reason":"empty df"})
-            continue
-#         bin_lb = df[df["nodes"] == "SALBP_original"].copy()
-#         bin_lb = bin_lb[bin_lb["bin_lb"].isna()==False].copy()
-#         print(bin_lb)
-#         salb_upper = df[df["nodes"] == "SALBP_original"].copy()
-#         if salb_upper.empty:
-#             bad_instances.append({"instance":filename, "reason":"no_ub"})
-#             print(f"Error: {filename} is missing SALBP upper bound")
+#     path = Path(path).expanduser()  # Expands '~'
+#     all_files = list(path.glob("*.csv"))  # Finds all .csv files
+#     li = []
+#     bad_instances = []
+#     for filename in all_files:
+#         print('processing', filename)
+#         clean_up_csv(filename)
+#         df = pd.read_csv(filename, index_col=None, header=0)
+#         if df.empty:
+#             print(f"Error: {filename} was empty")
+#             bad_instances.append({"instance":filename, "reason":"empty df"})
 #             continue
-#         if bin_lb.empty:
-#             bad_instances.append({"instance":filename, "reason":"no_lb"})
-#             print(f"Error: {filename} is missing a lower bound")
+# #         bin_lb = df[df["nodes"] == "SALBP_original"].copy()
+# #         bin_lb = bin_lb[bin_lb["bin_lb"].isna()==False].copy()
+# #         print(bin_lb)
+# #         salb_upper = df[df["nodes"] == "SALBP_original"].copy()
+# #         if salb_upper.empty:
+# #             bad_instances.append({"instance":filename, "reason":"no_ub"})
+# #             print(f"Error: {filename} is missing SALBP upper bound")
+# #             continue
+# #         if bin_lb.empty:
+# #             bad_instances.append({"instance":filename, "reason":"no_lb"})
+# #             print(f"Error: {filename} is missing a lower bound")
+# #             continue
+
+# #         df = df[df["precedence_relation"].isna() == False]
+# #         bin_lb.rename(columns = {"nodes":"bin_lb"}, inplace=True)
+# #         bin_lb = bin_lb[["instance", "bin_lb"]]
+
+# #         df = pd.merge(df, bin_lb, on="instance")
+#         if any(df['bin_lb'].isna() == True):
+#             print(f"Error: {filename} wasn't able to calculate a lower bound")
+#             bad_instances.append({"instance":filename, "reason":"no_bin_lb"})
 #             continue
-
-#         df = df[df["precedence_relation"].isna() == False]
-#         bin_lb.rename(columns = {"nodes":"bin_lb"}, inplace=True)
-#         bin_lb = bin_lb[["instance", "bin_lb"]]
-
-#         df = pd.merge(df, bin_lb, on="instance")
-        if any(df['bin_lb'].isna() == True):
-            print(f"Error: {filename} wasn't able to calculate a lower bound")
-            bad_instances.append({"instance":filename, "reason":"no_bin_lb"})
-            continue
-        if any(df["no_stations"] < df["bin_lb"].astype(int)):
-            print(f"Error: {filename} has a lower bound mismatch")
-            bad_instances.append({"instance":filename, "reason":"lower bound mismatch"})
-            if forgive_lb_missmatch == True:
-                li.append(df)
-            continue
-        if len(df.index) != df["original_n_precedence_constraints"].iloc[0]+1:
-            print("Error: ", filename, " is missing rows, please check")
-            bad_instances.append({"instance":filename, "reason":"missing_edge"})
-            if forgive_missing ==True:
-                li.append(df)
-        else:
-            li.append(df)
-    if len(li)>0:
-        frame = pd.concat(li, axis=0, ignore_index=True)
-    else:
-        frame= None
-    return frame, bad_instances
+#         if any(df["no_stations"] < df["bin_lb"].astype(int)):
+#             print(f"Error: {filename} has a lower bound mismatch")
+#             bad_instances.append({"instance":filename, "reason":"lower bound mismatch"})
+#             if forgive_lb_missmatch == True:
+#                 li.append(df)
+#             continue
+#         if len(df.index) != df["original_n_precedence_constraints"].iloc[0]+1:
+#             print("Error: ", filename, " is missing rows, please check")
+#             bad_instances.append({"instance":filename, "reason":"missing_edge"})
+#             if forgive_missing ==True:
+#                 li.append(df)
+#         else:
+#             li.append(df)
+#     if len(li)>0:
+#         frame = pd.concat(li, axis=0, ignore_index=True)
+#     else:
+#         frame= None
+#     return frame, bad_instances
 
 def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
     SALBP_dict_orig = alb_dict
