@@ -15,6 +15,7 @@ from metrics.time_metrics import *
 #from data_prep import *
 import multiprocessing
 import time
+from typing import Optional, Union
 
 
 def enumerate_list(edge_list):
