@@ -6,6 +6,8 @@ import pandas as pd
 # Add the folder containing your module to the Python path
 build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
 sys.path.insert(0, build_dir)
+build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
+sys.path.insert(0, build_dir_2)
 sys.path.append('../src')
 from alb_instance_compressor import *
 import argparse
@@ -171,7 +173,7 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
     results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-    out_path = Path(out_fp + instance_name + "csv")
+    out_path = Path(out_fp + '/'+ instance_name + ".csv")
     print(out_path)
     print("parents : ", str(out_path.parent))
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -259,7 +261,9 @@ def generate_salb_2_results_from_dict_list(alb_files, out_fp, n_stations, ex_fp=
     with multiprocessing.Pool(pool_size) as pool:
         results = pool.starmap(salb2_solve, [(alb, ex_fp, out_fp, n_stations, branch, use_vdls, vdls_time) for alb in alb_files])
 
-    save_backup(out_fp + backup_name, results)
+    # save_backup(out_fp + backup_name, results[0])
+    final_res = pd.DataFrame(results)
+    final_res.to_csv(out_fp + backup_name, index=False)
     return results
 
 def generate_salbp_2_results_from_pickle(fp  ,out_fp, n_stations, res_df = None,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None , branch=1):
