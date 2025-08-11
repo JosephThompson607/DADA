@@ -8,6 +8,14 @@ import re
 import argparse
 import pandas as pd
 
+
+def enumerate_list(edge_list):
+    new_list = []
+    for i,prec in enumerate(edge_list):
+        new_prec = prec + [i]
+        new_list.append(new_prec)
+    return new_list 
+
 def open_salbp_pickle(fp):
     with open(fp, 'rb') as f:
         alb_files = pickle.load(f)

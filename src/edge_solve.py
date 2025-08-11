@@ -18,12 +18,7 @@ import time
 from typing import Optional, Union
 
 
-def enumerate_list(edge_list):
-    new_list = []
-    for i,prec in enumerate(edge_list):
-        new_prec = prec + [i]
-        new_list.append(new_prec)
-    return new_list
+
 
 def get_names_of_bad(bad_df):
     names_of_bad = [ str(instance_fp).split("/")[-1].split(".")[0] for instance_fp in bad_df['instance']]

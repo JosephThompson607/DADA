@@ -26,6 +26,7 @@ import ILS_ALBP as ils
 import ast
 from SALBP_solve import *
 from repair_partial_solves import *
+from pathlib import Path
 
 
 
@@ -165,13 +166,13 @@ def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls
 
 def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, vdls_time_limt = 5):
     SALBP_dict_orig = alb_dict
-    print(SALBP_dict_orig)
+
     instance_fp = SALBP_dict_orig['name']
     results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-    print
-    out_path = Path(out_fp)
+    out_path = Path(out_fp + instance_name + "csv")
+    print(out_path)
     print("parents : ", str(out_path.parent))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if not os.path.exists(out_path.name):
@@ -298,10 +299,7 @@ def generate_salbp_2_results_from_pickle(fp  ,out_fp, n_stations, res_df = None,
     return results
 
 def main():
-    test_albp = parse_alb('test.alb')
-    test_albp['name'] = 'testalb'
-    result = salb2_solve(test_albp,"../BBR-for-SALBP1/SALB/SALB/salb", "test/test.csv", 15, use_vdls=False)
-    print(result)
+
 
     # Create argument parser
     parser = argparse.ArgumentParser(description='Solve edge removal on SALBP instance')
@@ -322,6 +320,7 @@ def main():
     parser.add_argument('--n_stations', type=int, required=True, help='number of stations for salbp-2 station constraint' )
     # # # Parse arguments
     args = parser.parse_args()
+    Path(args.final_results_fp).mkdir(parents=True, exist_ok=True)
     res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, n_stations=args.n_stations, res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config)
     # Process t
     # # Validate input
