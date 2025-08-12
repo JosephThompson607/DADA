@@ -10,6 +10,10 @@ import pandas as pd
 import sys
 import subprocess
 from copy import deepcopy
+build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
+sys.path.insert(0, build_dir)
+build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
+sys.path.insert(0, build_dir_2)
 from pathlib import Path
 import os
 from pathlib import Path
