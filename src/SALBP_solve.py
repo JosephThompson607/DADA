@@ -266,7 +266,7 @@ def run_alb_ils_dict(alb_dict, max_iterations):
 #     results.append(result)
 #     return results
 
-def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
+def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
     instance_fp = SALBP_dict_orig['name']
@@ -276,7 +276,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
 
     if not os.path.exists(out_fp):
          os.makedirs(out_fp)
-    print("running: ", instance_name, " saving to output ", out_fp)
+    print("running: ", instance_name, " saving to output ", out_fp, " time limit: ", time_limit)
     # Use a unique temporary ALB file per process
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
@@ -284,7 +284,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch=1):
         #original problem
         SALBP_dict = deepcopy(SALBP_dict_orig)
         write_to_alb(SALBP_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # print("Return code:", output.returncode)
         # print("STDOUT:", output.stdout.decode())
         
@@ -468,14 +468,14 @@ def ils_bbr_solve_edges(alb_dict, ex_fp, out_fp, branch=1, method=ils_call):
     return results
 
 
-def generate_results_from_dict_list(alb_files, out_fp, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4, branch=1):
+def generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch, time_limit):
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp, out_fp, branch) for alb in alb_files])
+        results = pool.starmap(generate_one_instance_results, [(alb, ex_fp, out_fp, branch, time_limit) for alb in alb_files])
 
     save_backup(out_fp + backup_name, results)
     return results
 
-def generate_results_from_pickle(fp  ,out_fp, res_df = None,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None , branch=1):
+def generate_results_from_pickle(fp  ,out_fp, res_df ,  ex_fp ,  backup_name , pool_size, start, stop , branch, time_limit):
     '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
     or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
     
@@ -503,12 +503,12 @@ def generate_results_from_pickle(fp  ,out_fp, res_df = None,  ex_fp = "../BBR-fo
             else:
                 print( name, "is already in results, skipping")
 
-        results = generate_results_from_dict_list(filtered_files, out_fp, ex_fp, backup_name, pool_size, branch=branch)
+        results = generate_results_from_dict_list(filtered_files, out_fp, ex_fp, backup_name, pool_size, branch=branch, time_limit = time_limit)
     else:
         alb_files = open_salbp_pickle(fp)
         if start is not None and stop is not None:
             alb_files = alb_files[start:stop]
-        results =  generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch=branch)
+        results =  generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch=branch ,time_limit = time_limit)
     return results
 
 
@@ -541,6 +541,7 @@ def main():
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
     parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
     parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
+    parser.add_argument('--time_limit', type=int, required=False, default=1000, help='max time to solve the problem')
     # Parse arguments
     args = parser.parse_args()
     
@@ -558,7 +559,7 @@ def main():
         results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
 
     else:
-        results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config)
+        results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config, time_limit = args.time_limit)
     # Process the range
     
     results_df = pd.DataFrame(results)
