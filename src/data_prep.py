@@ -18,24 +18,25 @@ import multiprocessing
 
 
 #FEATURE GENERATION FROM GRAPH
-def alb_to_graph_data(alb_instance):
+def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None):
     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
     print("processing instance", instance)
-    alb_dag = make_alb_digraph(alb_instance)
-    time_metrics = get_time_stats(alb_instance, C=1000)
- 
+    if salbp_type == "salbp_1":
+        time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+    elif salbp_type == "salbp_2":
+        time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
     graph_metrics = get_graph_metrics(alb_instance)
     graph_data = {'instance':instance, **time_metrics, **graph_metrics}
     return graph_data
 
 
 
-def generate_graph_data_from_pickle(pickle_instance_fp, pool_size=4 ):
+def generate_graph_data_from_pickle(pickle_instance_fp, pool_size=4 , salbp_type="salbp_1",cap_constraint=None):
     alb_instances = open_salbp_pickle(pickle_instance_fp)
     with multiprocessing.Pool(pool_size) as pool:
-        edge_data = pool.map(alb_to_graph_data, alb_instances)
-    print(edge_data)
-    graph_info_df = pd.DataFrame(edge_data)
+        graph_data = pool.starmap(alb_to_graph_data, [(alb, salbp_type, cap_constraint) for alb in alb_instances])
+    print(graph_data)
+    graph_info_df = pd.DataFrame(graph_data)
     return graph_info_df
 
 
@@ -57,7 +58,10 @@ def generate_edge_data_from_pickle(pickle_instance_fp, pool_size=4 ):
     with multiprocessing.Pool(pool_size) as pool:
         edge_data = pool.map(alb_to_edge_data, alb_instances)
     edge_info_df = pd.concat(edge_data)
+
     return edge_info_df
+
+
 
 
 #PROCESSING SALBP OUTPUT
@@ -174,8 +178,8 @@ def check_n_edges(df, filter=True, edge_column ='n_edges'):
         df = df.drop(columns=['red_flag'])
     return df
 
-def add_min_and_max(df):
-    min_and_max = df.groupby("instance")["no_stations"].agg(["min", "max"])
+def add_min_and_max(df, column):
+    min_and_max = df.groupby("instance")[column].agg(["min", "max"])
     min_and_max.reset_index(inplace = True)
     # #merges min and max with the tasks_50 dataframe
     df = pd.merge(df, min_and_max, on = "instance")
@@ -213,10 +217,12 @@ def prep_data_for_gnn(results_folder, graph_data_df_fp,collated_out, gnn_dat_out
     return gnn_df
 
 
-def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_out, ml_dat_out, remove_incomplete= True, tolerance=0):
+def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_out, ml_dat_out, remove_incomplete= True, tolerance=0, obj_col="no_stations", new_name="s_orig"):
     ''' makes data appropiate for the DataSet used by the GNN. It needs the SALBP solver results, and graph meta data df before calculating the rest'''
     my_df = pd.read_csv(result_csv)
-    my_df = get_salbp_ub(my_df)
+
+    my_df = get_salbp_ub(my_df, obj_col=obj_col, new_name=new_name)
+    print("res data columns after ub", my_df.columns)
     if remove_incomplete:
         instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index()
         instance_counts.rename(columns={"precedence_relation":"row_counts"}, inplace=True)
@@ -227,13 +233,18 @@ def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_o
         my_df = my_df.drop(columns={'row_counts'})
     #my_df = pd.read_csv()
     graph_data = pd.read_csv(graph_data_df_fp)
+    if 'n_stations' in graph_data.columns:
+        graph_data.drop(columns=['n_stations'],inplace=True)
+    print("graph_data cols", graph_data.columns)
     graph_data = graph_data.loc[:, ~graph_data.columns.str.contains("^Unnamed")]
     
     edge_data = pd.read_csv(edge_data_df_fp)
+    print("edge data columns", edge_data.columns)
     edge_data = edge_data.loc[:, ~edge_data.columns.str.contains("^Unnamed")]
     graph_data = pd.merge(graph_data, edge_data, on="instance", how="right")
     my_df = pd.merge(my_df, graph_data, left_on = ['instance','precedence_relation'], right_on = ['instance','idx'], how="inner")
-    my_df = add_min_and_max(my_df)
+    print("here are the columns now, ", my_df.columns)
+    my_df = add_min_and_max(my_df, obj_col)
     my_df = my_df.drop(columns='idx')
     my_df =my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'})
     my_df.to_csv(ml_dat_out, index=False)
@@ -242,11 +253,12 @@ def prep_data_for_gnn_2(result_csv, graph_data_df_fp, edge_data_df_fp, gnn_dat_o
     #my_df.to_csv(gnn_dat_out, index=False)
     return my_df
 
-def get_salbp_ub(my_df):
+def get_salbp_ub(my_df, obj_col="no_stations", new_name="s_orig"):
     my_df = my_df.loc[:, ~my_df.columns.str.contains("^Unnamed")]
     orig_res = my_df[my_df['nodes']=="SALBP_original"]
-    orig_res = orig_res[['instance','no_stations']]
-    orig_res.rename(columns={'no_stations':'orig_stations'},inplace=True)
+    orig_res = orig_res[['instance',obj_col]]
+    if new_name:
+        orig_res.rename(columns={obj_col:new_name},inplace=True)
     my_df = my_df[~(my_df['nodes']=="SALBP_original")]
     my_df = pd.merge(my_df, orig_res, how="left", on='instance' )
     return my_df
@@ -258,19 +270,21 @@ def main():
     parser = argparse.ArgumentParser(description='Calcuate graph metadata for an ALB instance')
     
     # Add arguments
-    parser.add_argument('--filepath', type=str, required=True, help='filepath for alb pickle dataset')
+    parser.add_argument('--pickle_fp', type=str, required=True, help='filepath for alb pickle dataset')
     parser.add_argument('--output_fp', type=str, required=True, help='filepath for results, if no error')
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
-    parser.add_argument('--type',type=str, required=True, help='generating graph or edge data')
+    parser.add_argument('--feature_type',type=str, required=True, help='generating graph or edge data')
+    parser.add_argument('--cap_constraint', type=int, required=False, help='Cycle time for salb1, n_stations for salb2')
+    parser.add_argument('--salbp', type=str, required=False,default= 'salbp_1', help='type of salbp problem we are solving' )
     
     # Parse arguments
     args = parser.parse_args()
     
     # Validate input
-    if args.type == 'graph':
-        results = generate_graph_data_from_pickle( pickle_instance_fp = args.filepath, pool_size=args.n_processes )
-    elif args.type == 'edge':
-        results = generate_edge_data_from_pickle(pickle_instance_fp = args.filepath, pool_size=args.n_processes )
+    if args.feature_type == 'graph':
+        results = generate_graph_data_from_pickle( pickle_instance_fp = args.pickle_fp, pool_size=args.n_processes, salbp_type=args.salbp, cap_constraint=args.cap_constraint )
+    elif args.feature_type == 'edge':
+        results = generate_edge_data_from_pickle(pickle_instance_fp = args.pickle_fp, pool_size=args.n_processes )
     else:
         raise ValueError("Must select 'graph' or 'edge' for the type argument")
     # Process the range

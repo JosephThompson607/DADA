@@ -149,19 +149,20 @@ def bottleneck_stats(dag):
     bottlenecks = []
     #First we calculate the number of predecessors and successors of each node
     node_stats = get_n_suc_pred(dag)
+
     #Then we check if the node is a bottleneck
     for node in dag.nodes():
         candidate = True
         pred_count = 0
         for pred in dag.predecessors(node):
-            if node_stats[pred][0] == 0:
+            if node_stats[pred][1] == 1:
                 pred_count += 1
         if pred_count < 2:
             candidate = False
             continue
         succ_count = 0
         for succ in dag.successors(node):
-            if node_stats[succ][1] == 0:
+            if node_stats[succ][0] == 1:
                 succ_count += 1
         if succ_count < 2:
             candidate = False

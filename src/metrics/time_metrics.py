@@ -19,3 +19,23 @@ def get_time_stats(alb_instance, C=None):
     sum_div_c = np.sum(task_times) / C
     std_div_c = np.std(task_times) / C
     return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c}
+
+
+
+def get_time_stats_salb2(alb_instance, S=None):
+    """
+    Get time statistics for the given ALB instance.
+    :param alb_instance: ALB instance
+    :return: dictionary containing time statistics
+    """
+    if S is None:
+        #if alb_instance['cycle_time'] is  not provide, raise an error
+        if 'cycle_time' not in alb_instance:
+            raise ValueError('Cycle time not provided, add value to C or to alb_instance')
+        S = alb_instance['n_stations']
+    task_times = list( alb_instance['task_times'].values())
+    min_div_s = np.min(task_times) / S
+    max_div_s= np.max(task_times) / S
+    sum_div_s = np.sum(task_times) / S
+    std_div_s = np.std(task_times) / S
+    return {'n_stations':S,'min_div_s': min_div_s, 'max_div_s': max_div_s, 'sum_div_s': sum_div_s, 'std_div_s': std_div_s, 'tasks_per_station':len(task_times)/S}
