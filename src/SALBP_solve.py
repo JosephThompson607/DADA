@@ -221,6 +221,7 @@ def run_simple_alb_ils(inst):
     results = run_alb_ils_dict(alb)
     return 
 
+
 def run_alb_ils_dict(alb_dict, max_iterations):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
@@ -237,34 +238,6 @@ def run_alb_ils_dict(alb_dict, max_iterations):
 
 
 
-# def generate_one_instance_results(alb_dict, ex_fp):
-#     results = []
-#     SALBP_dict_orig = alb_dict
-#     bin_dict = deepcopy(SALBP_dict_orig)
-#     instance_fp = SALBP_dict_orig['name']
-#     #instance name is after the last / and before the .alb
-#     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-#     print("instance name", instance_fp)
-#     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
-#         SALBP_dict = deepcopy(SALBP_dict_orig)
-#         SALBP_dict =precedence_removal(SALBP_dict, j)
-#         write_to_alb(SALBP_dict, "test.alb")
-#         output = subprocess.run([ex_fp,"-m","2", "test.alb"], stdout=subprocess.PIPE)
-#         no_stations, optimal, cpu = parse_bb_salb1_out(output)
-#         result = {"instance:": f"{instance_name}", "precedence_relation": j, "nodes": relation,  "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-#         save_backup(instance_name +".csv", result)
-#         results.append(result)
-
-#     #calculates bin packing lower bound
-#     bin_dict['precedence_relations'] = []
-#     write_to_alb(bin_dict, "test.alb")
-#     #TODO ad -m 2 to hopefully avoid bug in solver code
-#     output = subprocess.run([ex_fp, "-m","2", "test.alb"], stdout=subprocess.PIPE)
-#     no_stations, optimal, cpu = parse_bb_salb1_out(output)
-#     result = {"instance": f"{instance_name}", "precedence_relation": "None", "no_stations": no_stations, "optimal": optimal, "cpu": cpu}
-#     save_backup( instance_name+".csv", result)
-#     results.append(result)
-#     return results
 
 def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
     SALBP_dict_orig = alb_dict
@@ -335,13 +308,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
 
     return results
 
-def use_ils_on_albs(instance_dicts, pool_size =4, max_iterations = 20000):
-    
-    
-    with multiprocessing.Pool(pool_size) as pool:
-        partial_func = partial(run_alb_ils_dict, max_iterations = max_iterations)
-        results = pool.map(partial_func, instance_dicts)
-    return results
+
 
 def ils_call(cycle_time, tasks_times_list, precedence_list, 
                        max_iterations=1000, operation_probs=0.5, 
@@ -398,12 +365,30 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         print(f"Error solving SALBP1: {e}")
         return None
         
-        
+def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []):
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.vdls_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, initial_solution=initial_solution , max_attempts = 200000,time_limit = time_limit)
+    result_dict = results.to_dict()
+    end = time.time()- start
+
+    return {
+            **result_dict, "time_limit":time_limit, "elapsed_time":end}
+
+       
 
 
 
 
-def ils_bbr_solve_edges(alb_dict, ex_fp, out_fp, branch=1, method=ils_call):
+def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
+    if mh_func == "salbp1_vdls_dict":
+        mh_func= salbp1_vdls_dict
+    else:
+        print(f"Error: given metaheuristic {mh_func} not supported")
     SALBP_dict_orig = alb_dict
     orig_prec = len(alb_dict['precedence_relations'])
     instance_fp = SALBP_dict_orig['name']
@@ -416,57 +401,96 @@ def ils_bbr_solve_edges(alb_dict, ex_fp, out_fp, branch=1, method=ils_call):
     print("running: ", instance_name, " saving to output ", out_fp)
     # Use a unique temporary ALB file per process
     
-    start = time.time()
-    solution = ils.ils_solve_SALBP1(
-            C=C,
-            N=N,
-            task_times=task_times,
-            raw_precedence=raw_precedence,
-            max_iter=max_iter,
-            op_probs=op_probs,
-            verbose=verbose,
-            initial_solution=initial_solution
-        )
+
+    orig_solution = mh_func(
+        alb_dict,
+        time_limit
+    )
         
-    end = time.time()
   
     orig_prob = {
         "instance": instance_name,
         "precedence_relation": "None",
         "nodes": "SALBP_original",
-        "no_stations": solution.n_stations,
+        "no_stations": orig_solution['n_stations'],
         "original_n_precedence_constraints": orig_prec,
       #  "optimal": "na",
-        "cpu": time,
+        "cpu": orig_solution['elapsed_time'],
+        "task_assignments": orig_solution['task_assignment']
         #"bin_lb": bin_lb
     }
     results.append(orig_prob)
     save_backup(out_fp+instance_name + ".csv", orig_prob)
     #Tracking if instance autocompleted because bp=salbp and setting defaults
     cpu = -1 
-    no_stations = salbp_sol
+    no_stations = orig_solution['n_stations']
 
     #proceeds to precedence constraint removal, if bin_lb != no stations
     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
         print("removing edge: ", relation)
         SALBP_dict = deepcopy(SALBP_dict_orig)
         SALBP_dict = precedence_removal(SALBP_dict, j)
+        solution =    mh_func(
+        alb_dict,
+        time_limit, 
+        orig_solution['task_assignment']
+    )
         
         result = {
             "instance": instance_name,
             "precedence_relation": j,
             "nodes": relation,
-            "no_stations": no_stations,
+            "no_stations": solution['n_stations'],
             "original_n_precedence_constraints": orig_prec,
-            "optimal": optimal,
-            "cpu": cpu,
-            "bin_lb": bin_lb
+            "cpu": solution['elapsed_time'],
+            "task_assignments": solution['task_assignment']
         }
         save_backup(out_fp+instance_name + ".csv", result)
         results.append(result)
 
     return results
 
+def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit):
+    with multiprocessing.Pool(pool_size) as pool:
+        results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit) for alb in alb_files])
+    #save_backup(out_fp + backup_name, results)
+    return results
+
+def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, stop , mh_func, time_limit):
+    '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
+    or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
+    
+    results = []
+    #loads the pickle file
+
+    if res_df is not None:
+
+        res_df = pd.read_csv(res_df)
+        if "pickle_fp" in res_df.columns:
+            alb_files = []
+            print("not using pickle fp")
+            pickles = res_df['pickle_fp'].unique()
+            for pf in pickles:
+                alb_files +=  open_salbp_pickle(pf)
+        else:
+            alb_files = open_salbp_pickle(fp)
+        print("here is the res df", res_df.head())
+        instances = set(res_df['instance'])
+        filtered_files = []
+        for alb in alb_files:
+            name = str(alb['name']).split('/')[-1].split('.')[0]
+            if name not in instances:
+                filtered_files.append(alb)
+            else:
+                print( name, "is already in results, skipping")
+
+        results = generate_results_from_dict_list_2(filtered_files, out_fp, pool_size,mh_func, time_limit)
+    else:
+        alb_files = open_salbp_pickle(fp)
+        if start is not None and stop is not None:
+            alb_files = alb_files[start:stop]
+        results =  generate_results_from_dict_list_2(alb_files, out_fp,pool_size, mh_func, time_limit)
+    return results
 
 def generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch, time_limit):
     with multiprocessing.Pool(pool_size) as pool:
@@ -535,13 +559,14 @@ def main():
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
-    parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
+    parser.add_argument('--backup_name', type=str, required=False, default="results", help='name for intermediate saves')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
     parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
     parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
     parser.add_argument('--time_limit', type=int, required=False, default=1000, help='max time to solve the problem')
+    parser.add_argument('--use_vdls',  action="store_true", help='Use vdls metaheuristic instead of BBR')
     # Parse arguments
     args = parser.parse_args()
     
@@ -559,7 +584,10 @@ def main():
         results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
 
     else:
-        results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config, time_limit = args.time_limit)
+        if args.use_vdls:
+            results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit)
+        else:
+            results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config, time_limit = args.time_limit)
     # Process the range
     
     results_df = pd.DataFrame(results)
