@@ -288,7 +288,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
             SALBP_dict = precedence_removal(SALBP_dict, j)
             if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
                 write_to_alb(SALBP_dict, temp_alb_path)
-                output = subprocess.run([ex_fp, "-m", f"{branch}", temp_alb_path], stdout=subprocess.PIPE)
+                output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 # print("Return code:", output.returncode)
                 # print("STDOUT:", output.stdout.decode())
                 print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")
