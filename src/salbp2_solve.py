@@ -29,7 +29,80 @@ import ast
 from SALBP_solve import *
 from repair_partial_solves import *
 from pathlib import Path
+import numpy as np
 
+import re
+
+def parse_alb_results_new_bbr(output_text):
+    """
+    Parse ALB solver output and return results dictionary.
+    
+    Args:
+        output_text: String output from subprocess
+        
+    Returns:
+        Dictionary with keys: verified_optimality, value, cpu, task_assignments
+    """
+    lines = output_text.strip().split('\n')
+    
+    # Initialize result dictionary
+    result = {
+        'verified_optimality': 0,
+        'value': None,
+        'cpu': None,
+        'task_assignments': []
+    }
+    
+    # Parse task assignments
+    in_task_assignments = False
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Check if we're entering task assignments section
+        if line == '<task assignments>':
+            in_task_assignments = True
+            continue
+        
+        # Check if we're leaving task assignments section
+        if line == '<task sequence>' or (in_task_assignments and line.startswith('<')):
+            in_task_assignments = False
+            continue
+        
+        # Parse task assignments (format: "task_number    station_number")
+        if in_task_assignments and line:
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    task_num = int(parts[0])
+                    station = int(parts[1])
+                    
+                    # Ensure list is large enough (index 0 will be unused, tasks start at 1)
+                    while len(result['task_assignments']) <= task_num:
+                        result['task_assignments'].append(0)
+                    
+                    result['task_assignments'][task_num] = station
+                except ValueError:
+                    continue
+        
+        # Parse the metrics line (contains "cpu:")
+        if 'cpu:' in line:
+            # Extract verified_optimality
+            verified_match = re.search(r'verified_optimality\s+(\d+)', line)
+            if verified_match:
+                result['verified_optimality'] = int(verified_match.group(1))
+            
+            # Extract UB as the value
+            ub_match = re.search(r'UB:\s*(\d+)', line)
+            if ub_match:
+                result['value'] = int(ub_match.group(1))
+            
+            # Extract CPU time
+            cpu_match = re.search(r'cpu:\s*([\d.]+)', line)
+            if cpu_match:
+                result['cpu'] = float(cpu_match.group(1))
+    
+    return result
 
 
 def parse_alb_results2(file_content):
@@ -94,79 +167,202 @@ def parse_alb_results2(file_content):
     }
 
 
-def salbp1_bbr_call(salbp_dict,ex_fp, branch):
+def salbp1_bbr_call(salbp_dict,ex_fp, branch, time_limit=3600):
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         write_to_alb(salbp_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        results = parse_alb_results2(output.stdout.decode("utf-8"))
+        #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
     return results
 
 
-def bbr_salbp2(ex_fp,salbp_dict, branch, n_stations, vdls_time_limit=5, use_vdls=True, initial_solution=None , start_ub = 1e20): 
-    start = time.time()
-    task_times = [task_time for (_, task_time) in salbp_dict['task_times'].items() ]
-    raw_precedence = [[int(parent), int(child)] for (parent, child) in salbp_dict['precedence_relations']]
-    lb = ils.calc_salbp_2_lbs(task_times, n_stations)
-    orig_lb = lb
-    if use_vdls:
-        print("solving salbp2: using vdls for starting heuristic")
-        if not initial_solution:
-            vdls_sol = ils.vdls_solve_salbp2(
-                                                S=n_stations,
-                                                N=salbp_dict['num_tasks'],
-                                                task_times=task_times,
-                                                raw_precedence=raw_precedence,
-                                                time_limit = vdls_time_limit,
-                                                        )
+class SALBP2Base:
+    """Base class for SALBP-2 solvers"""
+    
+    def __init__(self, ex_fp, branch, total_time_limit=3600):
+        self.ex_fp = ex_fp
+        self.branch = branch
+        self.total_tl = total_time_limit
+    
+    def _prepare_problem_data(self, salbp_dict):
+        """Common preprocessing of problem data"""
+        task_times = [task_time for (_, task_time) in salbp_dict['task_times'].items()]
+        raw_precedence = [[int(parent), int(child)] for (parent, child) in salbp_dict['precedence_relations']]
+        return task_times, raw_precedence
+    
+    def _finalize_solution(self, best_sol, n_stations, start_time, orig_lb, optimal=False):
+        """Common solution finalization"""
+        best_sol['verified_optimality'] = optimal
+        best_sol['n_stations'] = n_stations
+        best_sol['cpu'] = time.time() - start_time
+        best_sol['bin_salbp2_lb'] = orig_lb
+        return best_sol
+    
+    def solve(self, salbp_dict, n_stations, init_ub=None, init_sol=None):
+        """To be implemented by subclasses"""
+        raise NotImplementedError("Subclasses must implement solve method")
+
+class SALBP2WS(SALBP2Base):
+    def __init__(self,ex_fp, branch, total_time_limit=3600, expected_iterations=6, vdls_time_limit=1,  use_vdls=True , iteration_time = None):
+        super().__init__(ex_fp, branch, total_time_limit)
+        self.ei = expected_iterations
+        self.vdls_tl = vdls_time_limit
+        self.use_vdls = use_vdls
+        self.iteration_time = iteration_time
+
+
+    def solve(self,salbp_dict, n_stations,init_ub=1e20, init_sol = []): 
+        start = time.time()
+        task_times , raw_precedence = self._prepare_problem_data(salbp_dict)
+        lb = ils.calc_salbp_2_lbs(task_times, n_stations)
+        orig_lb = lb
+        if self.use_vdls:
+            print("solving salbp2: using vdls for starting heuristic")
+            if not init_sol:
+                vdls_sol = ils.vdls_solve_salbp2(
+                                                    S=n_stations,
+                                                    N=salbp_dict['num_tasks'],
+                                                    task_times=task_times,
+                                                    raw_precedence=raw_precedence,
+                                                    time_limit = self.vdls_tl,
+                                                            )
+            else:
+                vdls_sol = ils.vdls_solve_salbp2(
+                                                    S=n_stations,
+                                                    N=salbp_dict['num_tasks'],
+                                                    task_times=task_times,
+                                                    raw_precedence=raw_precedence,
+                                                    time_limit = self.vdls_tl,
+                                                    initial_solution = init_sol
+                                                            )
+            ub = min(vdls_sol.cycle_time, init_ub)
+
+            best_sol = {"cycle_time": ub, "task_assignments":  vdls_sol.task_assignment}
         else:
-            vdls_sol = ils.vdls_solve_salbp2(
-                                                S=n_stations,
-                                                N=salbp_dict['num_tasks'],
-                                                task_times=task_times,
-                                                raw_precedence=raw_precedence,
-                                                time_limit = vdls_time_limit,
-                                                initial_solution = initial_solution
-                                                        )
-        ub = min(vdls_sol.cycle_time, start_ub)
-        print("VDLS solution cycle time: ", ub, " starting search with bbr")
-        best_sol = {"cycle_time": ub, "task_assignments":  vdls_sol.task_assignment}
-    else:
-        ub = min(ils.calc_salbp_2_ub(task_times, n_stations), start_ub)
-        task_assignments = None
-        if initial_solution:
-            task_assignments = initial_solution
-        best_sol = {"cycle_time": ub, "task_assignments":  task_assignments}
-    a0 = 0 #Fibonnacci search variables
-    a1 = 1
-    while lb < ub: #TODO add time limit
-        print("current lower bound", lb, "current upper bound", ub)
-        test_salbp_dict = deepcopy(salbp_dict)
-        test_salbp_dict["cycle_time"] = lb + a0
-        results = salbp1_bbr_call(test_salbp_dict,ex_fp, branch)
-        if results["value"] is not None and results["value"] <= n_stations:
-            ub = test_salbp_dict["cycle_time"]
+            ub = min(ils.calc_salbp_2_ub(task_times, n_stations), init_ub)
+            task_assignments = None
+            if init_sol:
+                task_assignments = init_sol
+            best_sol = {"cycle_time": ub, "task_assignments":  task_assignments}
+        a0 = 0 #Fibonnacci search variables
+        a1 = 1
+        if not self.iteration_time:
+            iteration_time = int((time.time()-start)/self.ei)
+
+        if ub == lb:
+            lb_optimal = True
+            ub_optimal = True
+        else:
+            lb_optimal = False
+            ub_optimal = False
+            print("VDLS solution cycle time: ", ub, " lb ", lb,  " starting search with bbr")
+
+
+        while lb < ub and not time_exceeded(start, self.total_tl):
+            
+            print("current lower bound", lb, "current upper bound", ub)
+            test_salbp_dict = deepcopy(salbp_dict)
+            test_salbp_dict["cycle_time"] = lb + a0
+            results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = iteration_time)
+            if results["value"] is not None and results["value"] <= n_stations:
+                ub = test_salbp_dict["cycle_time"]
+                if results['verified_optimality'] == True:
+                    ub_optimal = True
+                best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
+                a0 = 0 #Restarts search at best lower bound
+                a1 = 1
+
+                
+            else:
+                lb =test_salbp_dict["cycle_time"]+1 #Did not get a valid solution, so the lower bound must at least be one larger
+                if results['verified_optimality']:
+                    lb_optimal = True
+                a2 = a1 + a0 #Increases the step size for search
+                a0 = a1
+                a1 = a2
+        optimal = False
+        if ub_optimal and lb_optimal:
+            optimal =True
+        #Run again with remaining time 
+        while not time_exceeded(start, self.total_tl) and not optimal:
+            remaining_time =  self.total_tl - (time.time() - start)
+            test_salbp_dict = deepcopy(salbp_dict)
+            ub -=1
+            test_salbp_dict["cycle_time"] = ub
+            results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = remaining_time)
+            if results["value"] is not None and results["value"] <= n_stations:
+                ub = test_salbp_dict["cycle_time"]
+                best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
+            else: #Did not improve the cycle time
+                if results['verified_optimality']:
+                    optimal = True
+                break
+        best_sol = self._finalize_solution(best_sol, n_stations, start, orig_lb, optimal)
+        return best_sol
+
+
+def time_exceeded(start_time, time_limit):
+    current_time = time.time()
+    return current_time - start_time > time_limit
+
+class SALBP2Li(SALBP2Base):
+    def __init__(self,ex_fp,branch,total_time_limit = 3600,up_time_limit=10, down_time_limit=500, ):
+        super().__init__(ex_fp, branch, total_time_limit)
+        self.up_tl = up_time_limit
+        self.down_tl = down_time_limit
+
+
+    def solve(self,salbp_dict,  n_stations,init_ub=None, init_sol=[]): 
+        '''Uses the search strategy from Enhanced branch-bound-remember and iterative beam search algorithms for type II assembly line balancing problem 2021'''
+        start = time.time()
+        task_times , _ = self._prepare_problem_data(salbp_dict)
+        initial_ub_limit = min(int(np.ceil( self.total_tl / self.up_tl)), self.up_tl ) #Run initial search for at most 10 seconds, and at least 1
+        lb = ils.calc_salbp_2_lbs(task_times, n_stations)
+        optimal = True
+        if not init_ub:
+            #Search for ub solution using BBR
+            ct = lb
+            test_salbp_dict = deepcopy(salbp_dict)
+            test_salbp_dict["cycle_time"] = ct
+            results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = initial_ub_limit)
+            while results['value'] > n_stations:
+                ct +=1
+                test_salbp_dict["cycle_time"] = ct
+                results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = initial_ub_limit)
             best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
-            a0 = 0 #Restarts search at best lower bound
-            a1 = 1
-
-            
+            optimal = False
+            if (lb == ct):
+                optimal = True
         else:
-            lb =test_salbp_dict["cycle_time"]+1 #Did not get a valid solution, so the lower bound must at least be one larger
-            a2 = a1 + a0 #Increases the step size for search
-            a0 = a1
-            a1 = a2
-            
-    best_sol['n_stations'] = n_stations
-    best_sol['cpu'] = time.time() - start
-    best_sol['bin_salbp2_lb'] = orig_lb
-    return best_sol
+            best_sol = {"cycle_time": init_ub, "task_assignments": init_sol}
+            ct = init_ub
+        #start descending search
+        ct -= 1
+        while (lb < ct): 
+            optimal=False
+            remaining_limit = self.total_tl - (time.time() - start)
+            if remaining_limit < 0:
+                break
+            solver_limit = min(remaining_limit, self.down_tl)
+            test_salbp_dict["cycle_time"] = ct
+            results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = solver_limit)
+            if results['value'] <= n_stations:
+                ct-=1
+                best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
+            else:
+                if results['verified_optimality']:
+                    optimal = True
+                break
 
-   
+        best_sol = self._finalize_solution(best_sol, n_stations, start,lb, optimal )
+        return best_sol
+    
     
 
 
-def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, vdls_time_limt = 5):
+def salb2_solve(alb_dict,  out_fp,solver, n_stations):
     SALBP_dict_orig = alb_dict
 
     instance_fp = SALBP_dict_orig['name']
@@ -190,7 +386,7 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
     SALBP_dict = deepcopy(SALBP_dict_orig)
     if (orig_data.empty or orig_data[orig_data["nodes"] == "SALBP_original"].empty):
         
-        result_dict =bbr_salbp2(ex_fp,SALBP_dict, branch, n_stations,  use_vdls=use_vdls, vdls_time_limit=vdls_time_limt)
+        result_dict =solver.solve(SALBP_dict, n_stations)
         # print("Return code:", output.returncode)
         # print("STDOUT:", output.stdout.decode())     
         metadata = {
@@ -229,21 +425,37 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
         # print(orig_data[orig_data["child"]==inst_chi])
         # print("parent", orig_data["parent"])
         # print("child", orig_data["child"])
-        if not orig_data.empty and not (orig_data[(orig_data["parent"] ==inst_par) & (orig_data["child"]==inst_chi)]).empty:
-            print("Skipping relation that already exists: ", relation)
-            result =        {
-                                "cycle_time": salbp2_sol, 
-                                "task_assignments":  task_assignments,
-                                "cpu": cpu,
-                                "n_stations": n_stations,
-                                "bin_salbp2_lb":bin_lb
+        # if not orig_data.empty and not (orig_data[(orig_data["parent"] ==inst_par) & (orig_data["child"]==inst_chi)]).empty:
+        #     print("Skipping relation that already exists: ", relation)
+        #     result =        {
+        #                         "cycle_time": salbp2_sol, 
+        #                         "task_assignments":  task_assignments,
+        #                         "cpu": cpu,
+        #                         "n_stations": n_stations,
+        #                         "bin_salbp2_lb":bin_lb
 
-            }
-            continue
+        #     }
+        #     continue
         print("removing edge: ", relation)
         SALBP_dict = deepcopy(SALBP_dict_orig)
         SALBP_dict = precedence_removal(SALBP_dict, j)
-        result =bbr_salbp2(ex_fp,SALBP_dict, branch, n_stations,  use_vdls=use_vdls, vdls_time_limit=vdls_time_limt, initial_solution = task_assignments, start_ub=salbp2_sol)
+        if bin_lb == salbp2_sol:
+            print("original problem solution is already at lower bound, copying solution")
+            result =         {    'cycle_time':salbp2_sol,
+                              'task_assignments':task_assignments,
+                                'verified_optimality':True,
+                              'n_stations':n_stations,
+                              'cpu': -1,
+                              'bin_salbp2_lb':bin_lb,
+                              
+
+
+
+            }
+
+        else:
+
+            result =solver.solve(SALBP_dict,  n_stations,    salbp2_sol, init_sol = task_assignments)
         metadata = {
             "instance": instance_name,
             "precedence_relation": j,
@@ -257,16 +469,16 @@ def salb2_solve(alb_dict, ex_fp, out_fp, n_stations, branch=1, use_vdls= True, v
     return results
 
 
-def generate_salb_2_results_from_dict_list(alb_files, out_fp, n_stations, ex_fp="../BBR-for-SALBP1/SALB/SALB/salb", backup_name="SALBP_edge_solutions.csv", pool_size=4, branch=1, use_vdls=False, vdls_time=5):
+def generate_salb_2_results_from_dict_list(alb_files, out_fp, solver,n_stations, backup_name="SALBP_edge_solutions.csv", pool_size=4, ):
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(salb2_solve, [(alb, ex_fp, out_fp, n_stations, branch, use_vdls, vdls_time) for alb in alb_files])
+        results = pool.starmap(salb2_solve, [(alb,  out_fp,solver, n_stations, ) for alb in alb_files])
 
     # save_backup(out_fp + backup_name, results[0])
     final_res = pd.DataFrame(results)
     final_res.to_csv(out_fp + backup_name, index=False)
     return results
 
-def generate_salbp_2_results_from_pickle(fp  ,out_fp, n_stations, res_df = None,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None , branch=1):
+def generate_salbp_2_results_from_pickle(fp  ,out_fp, solver, n_stations, res_df = None,    backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None ):
     '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
     or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
     
@@ -294,13 +506,26 @@ def generate_salbp_2_results_from_pickle(fp  ,out_fp, n_stations, res_df = None,
             else:
                 print( name, "is already in results, skipping")
 
-        results = generate_salb_2_results_from_dict_list(filtered_files, out_fp,n_stations, ex_fp, backup_name, pool_size, branch=branch)
+
+        results = generate_salb_2_results_from_dict_list(filtered_files,  out_fp, solver, n_stations,  backup_name, pool_size)
     else:
         alb_files = open_salbp_pickle(fp)
         if start is not None and stop is not None:
             alb_files = alb_files[start:stop]
-        results =  generate_salb_2_results_from_dict_list(alb_files, out_fp,n_stations, ex_fp, backup_name, pool_size, branch=branch)
+        results =  generate_salb_2_results_from_dict_list(alb_files, out_fp, solver, n_stations,  backup_name, pool_size)
     return results
+
+def get_solver(solver_name, ex_fp, vdls_time_limit, branch, total_time_limit ):
+    if solver_name == "li":
+        solver = SALBP2Li(ex_fp, branch=branch, total_time_limit=total_time_limit)
+    elif solver_name == "ws":
+        if vdls_time_limit <= 0:
+            solver = SALBP2WS(ex_fp, branch=branch, total_time_limit=total_time_limit, use_vdls=False )
+        else:
+            solver = SALBP2WS(ex_fp, branch=branch, total_time_limit=total_time_limit, vdls_time_limit=vdls_time_limit, )
+    else:
+        print("ERROR: no solver specified")
+    return solver
 
 def main():
 
@@ -320,12 +545,15 @@ def main():
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
     parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
     parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
-    parser.add_argument('--vdls_time', type=int, required=False, default=5, help='number of seconds for vdls initial solve')
+    parser.add_argument('--vdls_time', type=int, required=False, default=5, help='number of seconds for vdls initial solve (O for no vdls)')
     parser.add_argument('--n_stations', type=int, required=True, help='number of stations for salbp-2 station constraint' )
+    parser.add_argument('--solver', type=str, required=False, default="li", help='what solver to use, li or ws' )
+    parser.add_argument('--total_time_limit', type=int, required=False, default=3600, help="time limit for total solution")
     # # # Parse arguments
     args = parser.parse_args()
     Path(args.final_results_fp).mkdir(parents=True, exist_ok=True)
-    res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, n_stations=args.n_stations, res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config)
+    solver = get_solver(args.solver, args.SALBP_solver_fp, vdls_time_limit = args.vdls_time, branch = args.solver_config, total_time_limit = args.total_time_limit )
+    res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, solver=solver, n_stations=args.n_stations, res_df = args.res_fp,  backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end)
     # Process t
     # # Validate input
 
