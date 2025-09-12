@@ -2,6 +2,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import time
+from metrics.node_and_edge_features import get_stages
 
 
 def calculate_order_strength(dag):
@@ -279,6 +280,9 @@ def get_n_isolated_nodes(dag):
     """
     return len([node for node in dag.nodes() if dag.in_degree(node) == 0 and dag.out_degree(node) == 0])
 
+
+
+
 def get_n_tasks_without_predecessors(dag):
     """
     Get the number of tasks without predecessors in a directed acyclic graph (DAG).
@@ -308,6 +312,16 @@ def get_graph_metrics(SALBP_instance):
     return generate_graph_metrics(G)
 
 
+def get_driscoll_stats(dag):
+    n_stages = get_n_stages(dag)
+    prec_strength = (n_stages-1) / (dag.number_of_nodes()-1)
+    node_stages = get_stages(dag, nx.topological_sort(dag))
+    average_stage = sum(node_stages.values())/dag.number_of_nodes()
+    prec_bias = average_stage/n_stages 
+    prec_index = (prec_strength + prec_bias)/2
+    return n_stages, prec_strength, prec_bias, prec_index
+
+
 def generate_graph_metrics(dag):
     """
     Generate the graph metrics of a directed acyclic graph (DAG)."""
@@ -328,11 +342,14 @@ def generate_graph_metrics(dag):
     convergence_degree = degree_of_convergence(dag)
 
     # Calculate the number of bottleneck nodes and their average degree
-    n_bottlenecks, avg_degree = bottleneck_stats(dag)
+    n_bottlenecks, avg_degree_bot = bottleneck_stats(dag)
 
     # Calculate the number of chain nodes and their average length
     n_chains, avg_length, nodes_in_chains = chain_stats(dag)
+    #Number of isolated nodes
     n_isolated_nodes = get_n_isolated_nodes(dag)
+    #Precedence strength, precedence bias, and precedence_index
+    n_stages, precedence_strength, precedence_bias, precedence_index = get_driscoll_stats(dag)
     end_time = time.time() - start_time
     res_dict = {
         'order_strength': order_strength,
@@ -344,11 +361,14 @@ def generate_graph_metrics(dag):
         'convergence_degree': convergence_degree,
         'n_bottlenecks': n_bottlenecks,
         'share_of_bottlenecks': n_bottlenecks / dag.number_of_nodes(),
-        'avg_degree_of_bottlenecks': avg_degree,
+        'avg_degree_of_bottlenecks': avg_degree_bot,
         'n_chains': n_chains,
         'avg_chain_length': avg_length,
         'nodes_in_chains': nodes_in_chains,
-        'n_stages': get_n_stages(dag),
+        'n_stages': n_stages,
+        'prec_strength': precedence_strength,
+        'prec_bias': precedence_bias,
+        'prec_index': precedence_index,
         'n_isolated_nodes': n_isolated_nodes,
         'share_of_isolated_nodes': n_isolated_nodes / dag.number_of_nodes(),
         'n_tasks_without_predecessors': get_n_tasks_without_predecessors(dag),

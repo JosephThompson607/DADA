@@ -380,7 +380,21 @@ def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []):
             **result_dict, "time_limit":time_limit, "elapsed_time":end}
 
        
+def salbp1_prioirity_dict(alb_dict, n_random=100):
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
 
+    end = time.time()- start
+    res_list = []
+    for result in results:
+        result_dict = {**result.to_dict(), "total_elapsed_time":end}
+        res_list.append(result_dict)
+    return res_list
 
 
 

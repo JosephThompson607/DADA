@@ -321,10 +321,10 @@ class SALBP2Li(SALBP2Base):
         initial_ub_limit = min(int(np.ceil( self.total_tl / self.up_tl)), self.up_tl ) #Run initial search for at most 10 seconds, and at least 1
         lb = ils.calc_salbp_2_lbs(task_times, n_stations)
         optimal = True
+        test_salbp_dict = deepcopy(salbp_dict)
         if not init_ub:
             #Search for ub solution using BBR
             ct = lb
-            test_salbp_dict = deepcopy(salbp_dict)
             test_salbp_dict["cycle_time"] = ct
             results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = initial_ub_limit)
             while results['value'] > n_stations:
@@ -336,6 +336,7 @@ class SALBP2Li(SALBP2Base):
             if (lb == ct):
                 optimal = True
         else:
+            print("using initial solution with ub: ", init_ub)
             best_sol = {"cycle_time": init_ub, "task_assignments": init_sol}
             ct = init_ub
         #start descending search
@@ -352,8 +353,10 @@ class SALBP2Li(SALBP2Base):
                 ct-=1
                 best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
             else:
+
                 if results['verified_optimality']:
                     optimal = True
+                print("Solution cycle time found", ct+1, " optimal: ", optimal)
                 break
 
         best_sol = self._finalize_solution(best_sol, n_stations, start,lb, optimal )
@@ -370,8 +373,6 @@ def salb2_solve(alb_dict,  out_fp,solver, n_stations):
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
     out_path = Path(out_fp + '/'+ instance_name + ".csv")
-    print(out_path)
-    print("parents : ", str(out_path.parent))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if not os.path.exists(out_path.name):
         orig_data = pd.DataFrame()    
@@ -410,7 +411,6 @@ def salb2_solve(alb_dict,  out_fp,solver, n_stations):
         task_assignments = result_dict['task_assignments']
         cpu = -1 
         #TODO ADD OPTIMALITY CHECKS optimal = 1
-    print("orig data columns: ", orig_data.columns)
     if not orig_data.empty:
         orig_data = orig_data[~(orig_data["nodes"]=="SALBP_original")]
 
@@ -469,16 +469,13 @@ def salb2_solve(alb_dict,  out_fp,solver, n_stations):
     return results
 
 
-def generate_salb_2_results_from_dict_list(alb_files, out_fp, solver,n_stations, backup_name="SALBP_edge_solutions.csv", pool_size=4, ):
+def generate_salb_2_results_from_dict_list(alb_files, out_fp, solver,n_stations,  pool_size=4, ):
     with multiprocessing.Pool(pool_size) as pool:
         results = pool.starmap(salb2_solve, [(alb,  out_fp,solver, n_stations, ) for alb in alb_files])
 
-    # save_backup(out_fp + backup_name, results[0])
-    final_res = pd.DataFrame(results)
-    final_res.to_csv(out_fp + backup_name, index=False)
     return results
 
-def generate_salbp_2_results_from_pickle(fp  ,out_fp, solver, n_stations, res_df = None,    backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None ):
+def generate_salbp_2_results_from_pickle(fp  ,out_fp, solver, n_stations, res_df = None,    pool_size = 4, start=None, stop=None ):
     '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
     or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
     
@@ -507,12 +504,12 @@ def generate_salbp_2_results_from_pickle(fp  ,out_fp, solver, n_stations, res_df
                 print( name, "is already in results, skipping")
 
 
-        results = generate_salb_2_results_from_dict_list(filtered_files,  out_fp, solver, n_stations,  backup_name, pool_size)
+        results = generate_salb_2_results_from_dict_list(filtered_files,  out_fp, solver, n_stations,  pool_size)
     else:
         alb_files = open_salbp_pickle(fp)
         if start is not None and stop is not None:
             alb_files = alb_files[start:stop]
-        results =  generate_salb_2_results_from_dict_list(alb_files, out_fp, solver, n_stations,  backup_name, pool_size)
+        results =  generate_salb_2_results_from_dict_list(alb_files, out_fp, solver, n_stations, pool_size)
     return results
 
 def get_solver(solver_name, ex_fp, vdls_time_limit, branch, total_time_limit ):
@@ -539,7 +536,6 @@ def main():
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
-    parser.add_argument('--backup_name', type=str, required=True, help='name for intermediate saves')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
@@ -553,7 +549,7 @@ def main():
     args = parser.parse_args()
     Path(args.final_results_fp).mkdir(parents=True, exist_ok=True)
     solver = get_solver(args.solver, args.SALBP_solver_fp, vdls_time_limit = args.vdls_time, branch = args.solver_config, total_time_limit = args.total_time_limit )
-    res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, solver=solver, n_stations=args.n_stations, res_df = args.res_fp,  backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end)
+    res  = generate_salbp_2_results_from_pickle(args.filepath, args.final_results_fp, solver=solver, n_stations=args.n_stations, res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end)
     # Process t
     # # Validate input
 
