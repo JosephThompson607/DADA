@@ -30,6 +30,16 @@ import ILS_ALBP as ils
 import time
 from functools import partial
 
+def salbp1_bbr_call(salbp_dict,ex_fp, branch, time_limit=3600):
+    with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
+        temp_alb_path = temp_alb.name  # Path to temporary file
+        write_to_alb(salbp_dict, temp_alb_path)
+        #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
+    return results
+
 def random_task_time_change(SALBP_dict, multiplier = 1.5):
     """Increases a random task time by 1"""
     import random
@@ -48,7 +58,82 @@ def precedence_removal(SALBP_dict, edge_index):
     """Removes a precedence relation"""
     SALBP_dict["precedence_relations"].pop(edge_index)
     return SALBP_dict
+
+def parse_alb_results_new_bbr(output_text):
+    """
+    Parse ALB solver output and return results dictionary.
     
+    Args:
+        output_text: String output from subprocess
+        
+    Returns:
+        Dictionary with keys: verified_optimality, value, cpu, task_assignments
+    """
+    lines = output_text.strip().split('\n')
+    
+    # Initialize result dictionary
+    result = {
+        'verified_optimality': 0,
+        'value': None,
+        'cpu': None,
+        'bpp':None,
+        'task_assignments': []
+    }
+    
+    # Parse task assignments
+    in_task_assignments = False
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Check if we're entering task assignments section
+        if line == '<task assignments>':
+            in_task_assignments = True
+            continue
+        
+        # Check if we're leaving task assignments section
+        if line == '<task sequence>' or (in_task_assignments and line.startswith('<')):
+            in_task_assignments = False
+            continue
+        
+        # Parse task assignments (format: "task_number    station_number")
+        if in_task_assignments and line:
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    task_num = int(parts[0])
+                    station = int(parts[1])
+                    
+                    # Ensure list is large enough (index 0 will be unused, tasks start at 1)
+                    while len(result['task_assignments']) <= task_num:
+                        result['task_assignments'].append(0)
+                    
+                    result['task_assignments'][task_num] = station
+                except ValueError:
+                    continue
+        
+        # Parse the metrics line (contains "cpu:")
+        if 'cpu:' in line:
+            # Extract verified_optimality
+            verified_match = re.search(r'verified_optimality\s+(\d+)', line)
+            if verified_match:
+                result['verified_optimality'] = int(verified_match.group(1))
+            
+            # Extract UB as the value
+            ub_match = re.search(r'UB:\s*(\d+)', line)
+            if ub_match:
+                result['value'] = int(ub_match.group(1))
+               # Extract UB as the value
+            bpp_match = re.search(r'bpp:\s*(\d+)', line)
+            if bpp_match:
+                result['bin_lb'] = int(ub_match.group(1))
+            
+            # Extract CPU time
+            cpu_match = re.search(r'cpu:\s*([\d.]+)', line)
+            if cpu_match:
+                result['cpu'] = float(cpu_match.group(1))
+    
+    return result
 
 def parse_bb_salb1_out(text):
     '''gets the number of stations, optimal flag and cpu time from the output of the salb1 program'''
@@ -239,6 +324,71 @@ def run_alb_ils_dict(alb_dict, max_iterations):
 
 
 
+# def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
+#     SALBP_dict_orig = alb_dict
+#     bin_dict = deepcopy(SALBP_dict_orig)
+#     instance_fp = SALBP_dict_orig['name']
+#     results = []
+#     # Extract instance name from file path
+#     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+
+#     if not os.path.exists(out_fp):
+#          os.makedirs(out_fp)
+#     print("running: ", instance_name, " saving to output ", out_fp, " time limit: ", time_limit)
+#     # Use a unique temporary ALB file per process
+   
+#     orig_prec = len(SALBP_dict_orig["precedence_relations"])
+#     #original problem
+#     SALBP_dict = deepcopy(SALBP_dict_orig)
+#     res = salbp1_bbr_call(SALBP_dict, ex_fp, branch, time_limit)
+#     bin_lb = sum
+#     salbp_sol = res['value']
+#     optimal = res['verified_optimality']
+#     cpu = res['cpu']
+#     if not bin_lb:
+#         print("ERROR, no bin_lb", )
+#     orig_prob = {
+#         "instance": instance_name,
+#         "precedence_relation": "None",
+#         "nodes": "SALBP_original",
+#         "no_stations": salbp_sol,
+#         "original_n_precedence_constraints": orig_prec,
+#         "optimal": optimal,
+#         "cpu": cpu,
+#         "lb_1": bin_lb
+#     }
+#     results.append(orig_prob)
+#     save_backup(out_fp+instance_name + ".csv", orig_prob)
+#     #Tracking if instance autocompleted because bp=salbp and setting defaults
+#     cpu = -1 
+#     no_stations = salbp_sol
+
+#     #proceeds to precedence constraint removal, if bin_lb != no stations
+#     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+#         print("removing edge: ", relation)
+#         SALBP_dict = deepcopy(SALBP_dict_orig)
+#         SALBP_dict = precedence_removal(SALBP_dict, j)
+#         if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
+#             res = salbp1_bbr_call(SALBP_dict, ex_fp, branch, time_limit)
+#             bin_lb = res['bin_lb']
+#             salbp_sol = res['value']
+#             optimal = res['verified_optimality']
+#             cpu = res['cpu']
+
+#         result = {
+#             "instance": instance_name,
+#             "precedence_relation": j,
+#             "nodes": relation,
+#             "no_stations": no_stations,
+#             "original_n_precedence_constraints": orig_prec,
+#             "optimal": optimal,
+#             "cpu": cpu,
+#             "lb_1": bin_lb
+#         }
+#         save_backup(out_fp+instance_name + ".csv", result)
+#         results.append(result)
+
+#     return results
 def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
@@ -307,6 +457,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
             results.append(result)
 
     return results
+
 
 
 

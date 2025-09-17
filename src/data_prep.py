@@ -13,6 +13,7 @@ from copy import deepcopy
 from metrics.node_and_edge_features import *
 from metrics.graph_features import *
 from metrics.time_metrics import *
+from metrics.global_combined_features import *
 import multiprocessing
 
 
@@ -23,10 +24,14 @@ def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None)
     print("processing instance", instance)
     if salbp_type == "salbp_1":
         time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+        combined_metrics = generate_priority_sol_stats_salbp1(alb_instance)
     elif salbp_type == "salbp_2":
+        if cap_constraint:
+            alb_instance['n_stations'] = cap_constraint
         time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
+        combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
     graph_metrics = get_graph_metrics(alb_instance)
-    graph_data = {'instance':instance, **time_metrics, **graph_metrics}
+    graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
     return graph_data
 
 

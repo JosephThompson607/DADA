@@ -22,7 +22,6 @@ from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle
 import subprocess
 import pandas as pd
 from copy import deepcopy
-import ILS_ALBP as ils 
 import time
 import ast
 from SALBP_solve import *
@@ -91,7 +90,7 @@ def clean_up_csv(csv_fp):
 #         frame= None
 #     return frame, bad_instances
 
-def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
+def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1, time_limit=180):
     SALBP_dict_orig = alb_dict
 
     instance_fp = SALBP_dict_orig['name']
@@ -104,7 +103,7 @@ def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
         orig_data = pd.DataFrame()    
     else:
         orig_data = pd.read_csv(out_fp)
-    print("running: ", instance_name, " saving to output ", out_fp)
+    print("running: ", instance_name, " saving to output ", out_fp, " time limit ", time_limit)
     # Use a unique temporary ALB file per process
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
@@ -113,7 +112,7 @@ def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
         SALBP_dict = deepcopy(SALBP_dict_orig)
         if (orig_data.empty or orig_data[orig_data["nodes"] == "SALBP_original"].empty):
             write_to_alb(SALBP_dict, temp_alb_path)
-            output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # print("Return code:", output.returncode)
             # print("STDOUT:", output.stdout.decode())
 
@@ -166,7 +165,7 @@ def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
             SALBP_dict = precedence_removal(SALBP_dict, j)
             if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
                 write_to_alb(SALBP_dict, temp_alb_path)
-                output = subprocess.run([ex_fp, "-m", f"{branch}", temp_alb_path], stdout=subprocess.PIPE)
+                output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 # print("Return code:", output.returncode)
                 # print("STDOUT:", output.stdout.decode())
                 print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")
@@ -186,21 +185,21 @@ def fix_partial_result(alb_dict, ex_fp, out_fp, branch=1):
 
     return results
 
-def retry_bad_instance(instance_fp, alb_dicts, ex_fp, branch):
+def retry_bad_instance(instance_fp, alb_dicts, ex_fp, branch, time_limit):
     instance_name = instance_fp.split('/')[-1].split('.')[0]  
     clean_up_csv(instance_fp)
     for alb in alb_dicts:
         name = str(alb['name']).split('/')[-1].split('.')[0]
         if name == instance_name:
             print("fixing ", name , " at ", instance_fp)
-            fix_partial_result(alb, ex_fp, instance_fp, branch=branch)
+            fix_partial_result(alb, ex_fp, instance_fp, branch=branch, time_limit=time_limit)
 
 
-def retry_bad_instances(bad_data_fp, data_pickle, ex_fp,pool_size, branch):
+def retry_bad_instances(bad_data_fp, data_pickle, ex_fp,pool_size, branch, time_limit):
     bad_data = pd.read_csv(bad_data_fp)
     alb_dicts = open_salbp_pickle(data_pickle)
     with multiprocessing.Pool(pool_size) as pool:
-       pool.starmap(retry_bad_instance, [(instance, alb_dicts, ex_fp, branch) for instance in bad_data['instance']])
+       pool.starmap(retry_bad_instance, [(instance, alb_dicts, ex_fp, branch, time_limit) for instance in bad_data['instance']])
 
 
 
@@ -214,12 +213,13 @@ def main():
     parser.add_argument('--pkl_fp', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--bad_data_csv', type=str, required=True, help='list of csv instance results instances that will be solved again')
     parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
+    parser.add_argument('--time_limit',type=int, required=False, default=180, help='time limit for SALBP solver')
     # Parse arguments
     args = parser.parse_args()
     
     # Validate input
 
-    retry_bad_instances(args.bad_data_csv, args.pkl_fp, ex_fp=args.SALBP_solver_fp, pool_size=args.n_processes, branch = args.solver_config)
+    retry_bad_instances(args.bad_data_csv, args.pkl_fp, ex_fp=args.SALBP_solver_fp, pool_size=args.n_processes, branch = args.solver_config, time_limit=args.time_limit)
     # Process the range
     
 

@@ -19,8 +19,8 @@ def get_time_stats(alb_instance, C=None):
     time_interval_size = max_div_c - min_div_c
     sum_div_c = np.sum(task_times) / C
     std_div_c = np.std(task_times) / C
-    t_std = np.std(task_times)
-    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_std':t_std, 'ti_size':time_interval_size}
+    t_cv = np.std(task_times)/(sum(task_times)/len(task_times))
+    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size}
 
 
 
@@ -40,6 +40,6 @@ def get_time_stats_salb2(alb_instance, S=None):
     max_div_s= np.max(task_times) / S
     sum_div_s = np.sum(task_times) / S
     std_div_s = np.std(task_times) / S
-    t_std = np.std(task_times)
+    t_cv = np.std(task_times)/(sum(task_times)/len(task_times))
     station_time_interval_size = max_div_s - min_div_s
-    return {'n_stations':S,'min_div_s': min_div_s, 'max_div_s': max_div_s, 'sum_div_s': sum_div_s, 'std_div_s': std_div_s,'tis_size':station_time_interval_size, 't_std':t_std,'tasks_per_station':len(task_times)/S}
+    return {'n_stations':S,'min_div_s': min_div_s, 'max_div_s': max_div_s, 'sum_div_s': sum_div_s, 'std_div_s': std_div_s,'tis_size':station_time_interval_size, 't_cv':t_cv,'tasks_per_station':len(task_times)/S}

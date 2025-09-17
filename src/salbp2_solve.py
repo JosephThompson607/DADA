@@ -33,76 +33,7 @@ import numpy as np
 
 import re
 
-def parse_alb_results_new_bbr(output_text):
-    """
-    Parse ALB solver output and return results dictionary.
-    
-    Args:
-        output_text: String output from subprocess
-        
-    Returns:
-        Dictionary with keys: verified_optimality, value, cpu, task_assignments
-    """
-    lines = output_text.strip().split('\n')
-    
-    # Initialize result dictionary
-    result = {
-        'verified_optimality': 0,
-        'value': None,
-        'cpu': None,
-        'task_assignments': []
-    }
-    
-    # Parse task assignments
-    in_task_assignments = False
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Check if we're entering task assignments section
-        if line == '<task assignments>':
-            in_task_assignments = True
-            continue
-        
-        # Check if we're leaving task assignments section
-        if line == '<task sequence>' or (in_task_assignments and line.startswith('<')):
-            in_task_assignments = False
-            continue
-        
-        # Parse task assignments (format: "task_number    station_number")
-        if in_task_assignments and line:
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    task_num = int(parts[0])
-                    station = int(parts[1])
-                    
-                    # Ensure list is large enough (index 0 will be unused, tasks start at 1)
-                    while len(result['task_assignments']) <= task_num:
-                        result['task_assignments'].append(0)
-                    
-                    result['task_assignments'][task_num] = station
-                except ValueError:
-                    continue
-        
-        # Parse the metrics line (contains "cpu:")
-        if 'cpu:' in line:
-            # Extract verified_optimality
-            verified_match = re.search(r'verified_optimality\s+(\d+)', line)
-            if verified_match:
-                result['verified_optimality'] = int(verified_match.group(1))
-            
-            # Extract UB as the value
-            ub_match = re.search(r'UB:\s*(\d+)', line)
-            if ub_match:
-                result['value'] = int(ub_match.group(1))
-            
-            # Extract CPU time
-            cpu_match = re.search(r'cpu:\s*([\d.]+)', line)
-            if cpu_match:
-                result['cpu'] = float(cpu_match.group(1))
-    
-    return result
+
 
 
 def parse_alb_results2(file_content):
@@ -167,15 +98,7 @@ def parse_alb_results2(file_content):
     }
 
 
-def salbp1_bbr_call(salbp_dict,ex_fp, branch, time_limit=3600):
-    with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
-        temp_alb_path = temp_alb.name  # Path to temporary file
-        write_to_alb(salbp_dict, temp_alb_path)
-        #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
-    return results
 
 
 class SALBP2Base:
@@ -467,6 +390,22 @@ def salb2_solve(alb_dict,  out_fp,solver, n_stations):
         results.append(result)
 
     return results
+
+def salbp2_prioirity_dict(alb_dict, n_random=100):
+    S = alb_dict['n_stations']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.priority_solve_salbp2(S=S, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
+
+    end = time.time()- start
+    res_list = []
+    for result in results:
+        result_dict = {**result.to_dict(), "total_elapsed_time":end}
+        res_list.append(result_dict)
+    return res_list
 
 
 def generate_salb_2_results_from_dict_list(alb_files, out_fp, solver,n_stations,  pool_size=4, ):
