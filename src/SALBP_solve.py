@@ -516,14 +516,14 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         print(f"Error solving SALBP1: {e}")
         return None
         
-def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []):
+def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []): #Disabled initial solution because of bug, fixing
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
     N = len(t_times)
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
-    results = ils.vdls_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, initial_solution=initial_solution , max_attempts = 200000,time_limit = time_limit)
+    results = ils.vdls_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, max_attempts = 200000,time_limit = time_limit)
     result_dict = results.to_dict()
     end = time.time()- start
 
@@ -547,22 +547,42 @@ def salbp1_prioirity_dict(alb_dict, n_random=100):
         res_list.append(result_dict)
     return res_list
 
+def salbp1_prioirity_solve(alb_dict,time_limit, n_random=1000, **kwargs):
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
+
+
+    best = results[0]
+    for result in results:
+        if result.n_stations < best.n_stations:
+            best=result
+    
+    end = time.time()- start
+    print("This is the best ", best.to_dict())
+    best = {**best.to_dict(),"elapsed_time":end, "total_elapsed_time":end}
+    return best
 
 
 def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
     if mh_func == "salbp1_vdls_dict":
         mh_func= salbp1_vdls_dict
+    elif mh_func == "salbp1_priority_dict":
+        mh_func = salbp1_prioirity_solve
     else:
         print(f"Error: given metaheuristic {mh_func} not supported")
-    SALBP_dict_orig = alb_dict
+    
     orig_prec = len(alb_dict['precedence_relations'])
-    instance_fp = SALBP_dict_orig['name']
+    instance_fp = alb_dict['name']
     results = []
     # Extract instance name from file path
     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
 
-    if not os.path.exists(out_fp):
-         os.makedirs(out_fp)
+
     print("running: ", instance_name, " saving to output ", out_fp)
     # Use a unique temporary ALB file per process
     
@@ -591,14 +611,14 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
     no_stations = orig_solution['n_stations']
 
     #proceeds to precedence constraint removal, if bin_lb != no stations
-    for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
+    for j, relation in enumerate(alb_dict["precedence_relations"]):
         print("removing edge: ", relation)
-        SALBP_dict = deepcopy(SALBP_dict_orig)
+        SALBP_dict = deepcopy(alb_dict)
         SALBP_dict = precedence_removal(SALBP_dict, j)
         solution =    mh_func(
-        alb_dict,
+        SALBP_dict,
         time_limit, 
-        orig_solution['task_assignment']
+        initial_solution=orig_solution['task_assignment']
     )
         
         result = {
@@ -616,6 +636,8 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
     return results
 
 def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit):
+    if not os.path.exists(out_fp):
+         os.makedirs(out_fp)
     with multiprocessing.Pool(pool_size) as pool:
         results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit) for alb in alb_files])
     #save_backup(out_fp + backup_name, results)
@@ -731,7 +753,7 @@ def main():
     parser.add_argument('--res_fp', type=str, required=False, help='Existing results df fp. Passing this filters out instances that have already been ran' )
     parser.add_argument('--solver_config', type=int, required=False, default=1, help='type of search strategy to use, 1 or 2 for the solver')
     parser.add_argument('--time_limit', type=int, required=False, default=1000, help='max time to solve the problem')
-    parser.add_argument('--use_vdls',  action="store_true", help='Use vdls metaheuristic instead of BBR')
+    parser.add_argument('--heuristic', type=str, required=False, help='what heuristic to use vdls or priority, none defaults to bbr')
     # Parse arguments
     args = parser.parse_args()
     
@@ -749,9 +771,13 @@ def main():
         results = generate_results(fp = args.filepath, instance_name = args.instance_name, start=args.start, stop = args.end, backup_name=args.backup_name)
 
     else:
-        if args.use_vdls:
-            results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit)
+        if args.heuristic:
+            if args.heuristic=='vdls':
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit)
+            elif args.heuristic=='priority':
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit)
         else:
+            print("using bbr")
             results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config, time_limit = args.time_limit)
     # Process the range
     
