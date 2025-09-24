@@ -76,7 +76,7 @@ def parse_alb_results_new_bbr(output_text):
         'verified_optimality': 0,
         'value': None,
         'cpu': None,
-        'bpp':None,
+        'bin_lb':None,
         'task_assignments': []
     }
     
@@ -103,12 +103,8 @@ def parse_alb_results_new_bbr(output_text):
                 try:
                     task_num = int(parts[0])
                     station = int(parts[1])
-                    
-                    # Ensure list is large enough (index 0 will be unused, tasks start at 1)
-                    while len(result['task_assignments']) <= task_num:
-                        result['task_assignments'].append(0)
-                    
-                    result['task_assignments'][task_num] = station
+
+                    result['task_assignments'].append(station)
                 except ValueError:
                     continue
         
@@ -126,7 +122,7 @@ def parse_alb_results_new_bbr(output_text):
                # Extract UB as the value
             bpp_match = re.search(r'bpp:\s*(\d+)', line)
             if bpp_match:
-                result['bin_lb'] = int(ub_match.group(1))
+                result['bin_lb'] = int(bpp_match.group(1))
             
             # Extract CPU time
             cpu_match = re.search(r'cpu:\s*([\d.]+)', line)
