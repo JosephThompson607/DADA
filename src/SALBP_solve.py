@@ -30,13 +30,17 @@ import ILS_ALBP as ils
 import time
 from functools import partial
 
-def salbp1_bbr_call(salbp_dict,ex_fp, branch, time_limit=3600):
+def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = True, **kwargs):
+    start = time.time()
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         write_to_alb(salbp_dict, temp_alb_path)
         #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+        if w_bin_pack:
+            output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        else:
+            output = subprocess.run([ex_fp, "-m", f"{branch}","-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        #print("probelm solved. Parsing. Time: ", time.time()-start)
         results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
     return results
 
@@ -118,7 +122,7 @@ def parse_alb_results_new_bbr(output_text):
             # Extract UB as the value
             ub_match = re.search(r'UB:\s*(\d+)', line)
             if ub_match:
-                result['value'] = int(ub_match.group(1))
+                result['n_stations'] = int(ub_match.group(1))
                # Extract UB as the value
             bpp_match = re.search(r'bpp:\s*(\d+)', line)
             if bpp_match:
@@ -511,15 +515,37 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
     except Exception as e:
         print(f"Error solving SALBP1: {e}")
         return None
-        
-def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []): #Disabled initial solution because of bug, fixing
+    
+
+def salbp1_mhh_solve(alb_dict, **kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
     N = len(t_times)
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
-    results = ils.vdls_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, max_attempts = 200000,time_limit = time_limit)
+    results = ils.hoff_solve_salbp1(
+            C=C,
+            N=N,
+            task_times=t_times,
+            raw_precedence=precs,
+
+        )
+    result_dict = results.to_dict()
+    end = time.time()- start
+
+    return {
+            **result_dict,  "elapsed_time":end}
+
+        
+def salbp1_vdls_dict(alb_dict,time_limit=180, initial_solution = [], **mh_kwargs): 
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.vdls_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, max_attempts = 200000,time_limit = time_limit, initial_solution=initial_solution)
     result_dict = results.to_dict()
     end = time.time()- start
 
@@ -527,7 +553,7 @@ def salbp1_vdls_dict(alb_dict,time_limit, initial_solution = []): #Disabled init
             **result_dict, "time_limit":time_limit, "elapsed_time":end}
 
        
-def salbp1_prioirity_dict(alb_dict, n_random=100):
+def salbp1_prioirity_dict(alb_dict, n_random=100,**mh_kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -543,7 +569,7 @@ def salbp1_prioirity_dict(alb_dict, n_random=100):
         res_list.append(result_dict)
     return res_list
 
-def salbp1_prioirity_solve(alb_dict,time_limit, n_random=1000, **kwargs):
+def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100, **kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -559,7 +585,6 @@ def salbp1_prioirity_solve(alb_dict,time_limit, n_random=1000, **kwargs):
             best=result
     
     end = time.time()- start
-    print("This is the best ", best.to_dict())
     best = {**best.to_dict(),"elapsed_time":end, "total_elapsed_time":end}
     return best
 

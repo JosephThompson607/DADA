@@ -92,7 +92,7 @@ def parse_alb_results2(file_content):
     
     return {
         'verified_optimality': verified_optimality,
-        'value': value,
+        'n_stations': value,
         'cpu': cpu,
         'task_assignments': solution_list
     }
@@ -189,7 +189,7 @@ class SALBP2WS(SALBP2Base):
             test_salbp_dict = deepcopy(salbp_dict)
             test_salbp_dict["cycle_time"] = lb + a0
             results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = iteration_time)
-            if results["value"] is not None and results["value"] <= n_stations:
+            if results["n_stations"] is not None and results["n_stations"] <= n_stations:
                 ub = test_salbp_dict["cycle_time"]
                 if results['verified_optimality'] == True:
                     ub_optimal = True
@@ -215,7 +215,7 @@ class SALBP2WS(SALBP2Base):
             ub -=1
             test_salbp_dict["cycle_time"] = ub
             results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = remaining_time)
-            if results["value"] is not None and results["value"] <= n_stations:
+            if results["n_stations"] is not None and results["n_stations"] <= n_stations:
                 ub = test_salbp_dict["cycle_time"]
                 best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
             else: #Did not improve the cycle time
@@ -250,7 +250,7 @@ class SALBP2Li(SALBP2Base):
             ct = lb
             test_salbp_dict["cycle_time"] = ct
             results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = initial_ub_limit)
-            while results['value'] > n_stations:
+            while results['n_stations'] > n_stations:
                 ct +=1
                 test_salbp_dict["cycle_time"] = ct
                 results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = initial_ub_limit)
@@ -272,7 +272,7 @@ class SALBP2Li(SALBP2Base):
             solver_limit = min(remaining_limit, self.down_tl)
             test_salbp_dict["cycle_time"] = ct
             results = salbp1_bbr_call(test_salbp_dict,self.ex_fp, self.branch, time_limit = solver_limit)
-            if results['value'] <= n_stations:
+            if results['n_stations'] <= n_stations:
                 ct-=1
                 best_sol = {"cycle_time": test_salbp_dict["cycle_time"], "task_assignments":  results["task_assignments"]}
             else:

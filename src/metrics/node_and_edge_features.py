@@ -215,9 +215,11 @@ def get_edge_data(instance_name, alb):
     return edge_list
 
 
-def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time'):
+def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
     ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''
     topological_sorts = []
+    if seed:
+        random.seed(seed)
     for _ in range(n_runs):
         top_sort = []
         weights = []
