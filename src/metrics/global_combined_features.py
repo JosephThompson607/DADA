@@ -4,11 +4,42 @@ import pandas as pd
 from SALBP_solve import salbp1_prioirity_dict
 from salbp2_solve import salbp2_prioirity_dict
 import time
+from alb_instance_compressor import open_salbp_pickle
 
 
-def generate_priority_sol_stats_salbp1(alb, n_random=100):
+def get_station_assignment_stats(priority_sols, cycle_time):
+    """Generate features for edges based where they fell in solutions"""
+    task_loads = []
+
+    for sol in priority_sols:
+        station_loads = sol["loads"]
+        station_assignments = sol["station_assignments"]
+
+        task_load_dict = {}
+        for idx, station_assignment in enumerate(station_assignments):
+            for task in station_assignment:
+                task_load_dict[task] = station_loads[idx] / cycle_time
+        task_loads.append(task_load_dict)
+    # Build dataframe
+    task_load_df = pd.DataFrame(task_loads)
+
+    # Aggregate stats per task
+    task_load_stats = task_load_df.aggregate(['mean', 'max', 'min','std'])
+
+    # Transpose so tasks become the keys
+    task_load_stats = task_load_stats.T
+    task_load_stats.sort_index(ascending=True, inplace=True)
+
+    stats_dict = task_load_stats.to_dict(orient="index")
+
+    return {"load_stats":stats_dict}
+
+
+
+def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_stats=True):
     start = time.time()
     priority_sols = salbp1_prioirity_dict(alb, n_random)
+
     task_times = [val for val in alb['task_times'].values()]
     t_div_c = sum(task_times) / alb['cycle_time']
     priority_df = pd.DataFrame(priority_sols)
@@ -22,7 +53,7 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100):
     random_avg_gap = (random_df['n_stations'].mean()-t_div_c)/t_div_c
     random_min_gap = (random_df['n_stations'].min()-t_div_c)/t_div_c
     random_max_gap = (random_df['n_stations'].max()-t_div_c)/t_div_c
-    random_avg_efficiency = 1- (random_df['n_stations'].mean()*alb['cycle_time'] - task_times)/(random_df['n_stations'].mean()*alb['cycle_time'])
+    random_avg_efficiency = 1- (random_df['n_stations'].mean()*alb['cycle_time'] - sum(task_times))/(random_df['n_stations'].mean()*alb['cycle_time'])
     metrics= {
     'priority_min_stations': min_sol,
     'priority_max_stations': max_sol,
@@ -36,6 +67,9 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100):
     'random_avg_efficiency': random_avg_efficiency,
     'priority_calc_time': time.time()-start
         }
+    if generate_task_load_stats:
+        task_load_stats = get_station_assignment_stats(priority_sols, cycle_time=alb["cycle_time"])
+        return {**metrics, **task_load_stats}
     return metrics
 
 def calc_global_combined_features_salbp1(alb_instance):
@@ -85,3 +119,6 @@ def calc_global_combined_features_salbp2(orig_instance, S=None, n_random=100):
          alb_instance['n_stations'] = S
     priority_metrics = generate_priority_sol_stats_salbp2(alb_instance, n_random)
     return priority_metrics
+
+
+

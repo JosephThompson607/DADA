@@ -151,7 +151,7 @@ def get_edge_data(instance_name, alb):
     longest_chains_to, longest_chains_from = longest_weighted_chains(G)
     edge_weights = get_edge_neighbor_max_min_avg_std(G)
     walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
-
+    
     for idx, edge in enumerate(alb['precedence_relations']):
 
         neighborhood_info = edge_weights[tuple(edge)]
@@ -214,6 +214,93 @@ def get_edge_data(instance_name, alb):
                             **child_walk_data})
     return edge_list
 
+
+
+def get_load_data(load_stats, node, name=''):
+    load_dict = load_stats[int(node)-1]
+    new_dict = {name + key: value for key, value in load_dict.items()}
+    return new_dict
+
+def get_combined_edge_and_graph_data( alb, graph_data):
+    '''Gets edge and graph data for an instance'''
+    start_time = time.time()
+    edge_list = []
+    G = nx.DiGraph()
+    G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
+    G.add_edges_from(alb['precedence_relations'])
+    #adds task times as node attributes
+    nx.set_node_attributes(G, {i: {'task_time': alb['task_times'][str(i)]} for i in G.nodes})
+    positional_weights = get_all_positional_weight(G)
+    longest_chains_to, longest_chains_from = longest_weighted_chains(G)
+    edge_weights = get_edge_neighbor_max_min_avg_std(G)
+    walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
+    load_stats = graph_data.pop('load_stats')
+    for idx, edge in enumerate(alb['precedence_relations']):
+
+        neighborhood_info = edge_weights[tuple(edge)]
+
+        chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
+        chain_avg = np.mean(chain_info['weights'])
+        chain_min = np.min(chain_info['weights'])
+        chain_max = np.max(chain_info['weights'])
+        chain_std = np.std(chain_info['weights'])
+        parent_in_degree = G.in_degree(edge[0])
+        parent_out_degree = G.out_degree(edge[0])
+
+        parent_weight = neighborhood_info['edge_0_weight']
+        parent_stage = len(longest_chains_to[edge[0]]['nodes'])
+        parent_pos_weight = positional_weights[edge[0]]
+        #gets the row of the parent's walk data
+        parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
+        #drops node from parent_walk_data
+        parent_walk_data.drop('node', axis=1, inplace=True)
+        #converts parent_walk_data to a dictionary
+        parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
+        #Gets parent load data 
+        parent_load_data = get_load_data(load_stats, edge[0], "load_parent_")
+        
+        child_weight = neighborhood_info['edge_1_weight']
+        child_stage = len(longest_chains_to[edge[1]]['nodes'])
+        child_in_degree = G.in_degree(edge[1])
+        child_out_degree = G.out_degree(edge[1])
+        #gets child walk data
+        child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
+        #drops node from parent_walk_data
+        child_walk_data.drop('node', axis=1, inplace=True)
+        #converts parent_walk_data to a dictionary
+        child_walk_data = child_walk_data.to_dict(orient='records')[0]
+        child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
+        child_pos_weight = positional_weights[edge[1]]
+        child_load_data = get_load_data(load_stats, edge[1], "load_child_")
+        end_time = time.time() - start_time
+        edge_list.append({ **graph_data,
+                            'edge': edge, 
+                            'idx': idx, 
+                            'parent_weight':parent_weight,
+                            'parent_pos_weight': parent_pos_weight,
+                            'parent_stage': parent_stage,
+                            'child_weight':child_weight, 
+                            'child_pos_weight': child_pos_weight, 
+                            'child_stage': child_stage,
+                            'stage_difference': child_stage-parent_stage,
+                            'neighborhood_min': neighborhood_info['min'], 
+                            'neighborhood_max': neighborhood_info['max'], 
+                            'neighborhood_avg': neighborhood_info['avg'], 
+                            'neighborhood_std': neighborhood_info['std'], 
+                            'parent_in_degree': parent_in_degree, 
+                            'parent_out_degree': parent_out_degree, 
+                            'child_in_degree': child_in_degree, 
+                            'child_out_degree': child_out_degree, 
+                            'chain_avg': chain_avg, 
+                            'chain_min': chain_min, 
+                            'chain_max': chain_max, 
+                            'chain_std': chain_std, 
+                            'edge_data_time':end_time, 
+                            **parent_walk_data, 
+                            **child_walk_data,
+                            **parent_load_data,
+                            **child_load_data})
+    return edge_list
 
 def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
     ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''

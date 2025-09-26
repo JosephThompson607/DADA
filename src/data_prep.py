@@ -24,16 +24,38 @@ def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None)
     print("processing instance", instance)
     if salbp_type == "salbp_1":
         time_metrics = get_time_stats(alb_instance, C=cap_constraint)
-        combined_metrics = generate_priority_sol_stats_salbp1(alb_instance)
+        combined_metrics = generate_priority_sol_stats_salbp1(alb_instance, generate_task_load_stats=False)
     elif salbp_type == "salbp_2":
         if cap_constraint:
             alb_instance['n_stations'] = cap_constraint
         time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
-        combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
+        combined_metrics = generate_priority_sol_stats_salbp2(alb_instance, generate_task_load_stats=False)
     graph_metrics = get_graph_metrics(alb_instance)
     graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
     return graph_data
 
+
+def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, n_random=100):
+    start=time.time()
+    instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
+    print("processing instance", instance)
+    graph_metrics = get_graph_metrics(alb_instance)
+    if salbp_type == "salbp_1":
+        time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+        combined_metrics = generate_priority_sol_stats_salbp1(alb_instance, n_random=n_random)
+        graph_time = time.time()-start
+        graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics, 'global_feature_time': graph_time}
+        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
+    elif salbp_type == "salbp_2": #TODO check if this works
+        if cap_constraint:
+            alb_instance['n_stations'] = cap_constraint
+        time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
+        combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
+        graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
+        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
+
+   
+    return final_data
 
 
 def generate_graph_data_from_pickle(pickle_instance_fp, pool_size=4 , salbp_type="salbp_1",cap_constraint=None):
@@ -66,6 +88,14 @@ def generate_edge_data_from_pickle(pickle_instance_fp, pool_size=4 ):
 
     return edge_info_df
 
+def generate_all_features_from_pickle(pickle_instance_fp, pool_size=4 , salbp_type="salbp_1",cap_constraint=None):
+    '''generates all features (edge, graph,). Must be called in order to use latest features'''
+    alb_instances = open_salbp_pickle(pickle_instance_fp)
+    with multiprocessing.Pool(pool_size) as pool:
+        edge_data =  pool.starmap(albp_to_features, [(alb, salbp_type, cap_constraint) for alb in alb_instances])
+    edge_info_df = pd.concat(edge_data)
+
+    return edge_info_df
 
 
 
@@ -290,6 +320,8 @@ def main():
         results = generate_graph_data_from_pickle( pickle_instance_fp = args.pickle_fp, pool_size=args.n_processes, salbp_type=args.salbp, cap_constraint=args.cap_constraint )
     elif args.feature_type == 'edge':
         results = generate_edge_data_from_pickle(pickle_instance_fp = args.pickle_fp, pool_size=args.n_processes )
+    elif args.feature_type =='all':
+        results = generate_all_features_from_pickle(pickle_instance_fp= args.pickle_fp, pool_size=args.n_processes, salbp_type=args.salbp, cap_constraint=args.cap_constraint)
     else:
         raise ValueError("Must select 'graph' or 'edge' for the type argument")
     # Process the range
