@@ -54,7 +54,7 @@ def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, 
         graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
 
-   
+    final_data = pd.DataFrame(final_data)
     return final_data
 
 

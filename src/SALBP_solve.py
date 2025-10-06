@@ -30,18 +30,22 @@ import ILS_ALBP as ils
 import time
 from functools import partial
 
-def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = True, **kwargs):
+def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = True,orig_bbr=True, **kwargs):
     start = time.time()
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         write_to_alb(salbp_dict, temp_alb_path)
         #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if w_bin_pack:
+            print("running with bin pack ")
             output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
             output = subprocess.run([ex_fp, "-m", f"{branch}","-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         #print("probelm solved. Parsing. Time: ", time.time()-start)
-        results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
+        if orig_bbr:
+            results = parse_alb_results_orig_bbr(output.stdout.decode("utf-8"))
+        else:
+            results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
     return results
 
 def random_task_time_change(SALBP_dict, multiplier = 1.5):
@@ -62,6 +66,64 @@ def precedence_removal(SALBP_dict, edge_index):
     """Removes a precedence relation"""
     SALBP_dict["precedence_relations"].pop(edge_index)
     return SALBP_dict
+
+def parse_alb_results_orig_bbr(output_text):
+    """
+    Parse ALB solver output and return results dictionary.
+
+    Extracts: verified_optimality, value, cpu, bin_lb, task_assignments
+    """
+    result = {
+        'verified_optimality': 0,
+        'n_stations': None,
+        'cpu': None,
+        'bin_lb': None,
+        'task_assignments': []
+    }
+
+    lines = output_text.strip().split('\n')
+    in_solution = False
+    pending_lbs = {}
+    for line in lines:
+        line = line.strip()
+
+        # Enter or exit task assignment section
+        if line.startswith("Solution with"):
+            in_solution = True
+            continue
+        if in_solution and (not line or line.startswith("test")):
+            in_solution = False
+
+        # Parse task assignments: "task\tstation"
+        if in_solution and re.match(r'^\d+\s+\d+', line):
+            parts = line.split()
+            result['task_assignments'].append(int(parts[1]))
+        #lower bound search 
+
+        if m := re.search(r'First lower bound:\s*(\d+)', line):
+            pending_lbs['first'] = int(m.group(1))
+
+        elif m := re.search(r'Second lower bound\s*(\d+)', line):
+            pending_lbs['second'] = int(m.group(1))
+        elif m := re.search(r'Bin-?packing lower bound\s*:?[\s]*(\d+)', line):
+            result['bin_lb'] = int(m.group(1))
+        # Parse verified_optimality, value, cpu
+        if "verified_optimality" in line:
+            if m := re.search(r'verified_optimality\s*=\s*(\d+)', line):
+                result['verified_optimality'] = int(m.group(1))
+            if m := re.search(r'value\s*=\s*(\d+)', line):
+                result['n_stations'] = int(m.group(1))
+            if m := re.search(r'cpu\s*=\s*([\d.]+)', line):
+                result['cpu'] = float(m.group(1))
+        print("pending lbs ", pending_lbs)
+        # Parse bin packing lower bound
+        if result['bin_lb'] is None and result['n_stations'] is not None:
+            for key in ('first', 'second'):
+                if key in pending_lbs and pending_lbs[key] == result['n_stations']:
+                    result['bin_lb'] = pending_lbs[key]
+                    break
+
+    return result
 
 def parse_alb_results_new_bbr(output_text):
     """
@@ -132,7 +194,6 @@ def parse_alb_results_new_bbr(output_text):
             cpu_match = re.search(r'cpu:\s*([\d.]+)', line)
             if cpu_match:
                 result['cpu'] = float(cpu_match.group(1))
-    
     return result
 
 def parse_bb_salb1_out(text):
