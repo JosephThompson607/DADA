@@ -2,8 +2,10 @@ import numpy as np
 import networkx as nx
 import random
 import pandas as pd
-
+from SALBP_solve import salbp1_prioirity_solve
+#from salbp2_solve import salbp2_prioirity_solve
 import time
+import copy
 
 
 def get_all_positional_weight(G, key="task_time"):
@@ -221,6 +223,13 @@ def get_load_data(load_stats, node, name=''):
     new_dict = {name + key: value for key, value in load_dict.items()}
     return new_dict
 
+
+def priority_edge_solves(edge, alb, n_random=100):
+    new_dict = copy.deepcopy(alb)
+    new_dict['precedence_relations'].remove(edge)
+    priority_sol = salbp1_prioirity_solve(new_dict, n_random=n_random)
+    return priority_sol['n_stations']
+
 def get_combined_edge_and_graph_data( alb, graph_data):
     '''Gets edge and graph data for an instance'''
     start_time = time.time()
@@ -238,7 +247,8 @@ def get_combined_edge_and_graph_data( alb, graph_data):
     for idx, edge in enumerate(alb['precedence_relations']):
 
         neighborhood_info = edge_weights[tuple(edge)]
-
+        n_stations = priority_edge_solves(edge, alb)
+        stations_delta = graph_data['priority_min_stations'] - n_stations
         chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
         chain_avg = np.mean(chain_info['weights'])
         chain_min = np.min(chain_info['weights'])
@@ -276,6 +286,7 @@ def get_combined_edge_and_graph_data( alb, graph_data):
         edge_list.append({ **graph_data,
                             'edge': edge, 
                             'idx': idx, 
+                            'stations_delta':stations_delta,
                             'parent_weight':parent_weight,
                             'parent_pos_weight': parent_pos_weight,
                             'parent_stage': parent_stage,
@@ -301,6 +312,8 @@ def get_combined_edge_and_graph_data( alb, graph_data):
                             **parent_load_data,
                             **child_load_data})
     return edge_list
+
+
 
 def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
     ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''

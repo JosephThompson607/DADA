@@ -19,8 +19,9 @@ def get_time_stats(alb_instance, C=None):
     time_interval_size = max_div_c - min_div_c
     sum_div_c = np.sum(task_times) / C
     std_div_c = np.std(task_times) / C
+    avg_div_c = np.mean(task_times)/ C
     t_cv = np.std(task_times)/(sum(task_times)/len(task_times))
-    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size}
+    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size, 'avg_div_c':avg_div_c}
 
 
 

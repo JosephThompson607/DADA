@@ -655,6 +655,7 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
         mh_func= salbp1_vdls_dict
     elif mh_func == "salbp1_priority_dict":
         mh_func = salbp1_prioirity_solve
+        
     else:
         print(f"Error: given metaheuristic {mh_func} not supported")
     

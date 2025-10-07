@@ -352,6 +352,7 @@ def generate_graph_metrics(dag):
     n_stages, precedence_strength, precedence_bias, precedence_index = get_driscoll_stats(dag)
     end_time = time.time() - start_time
     res_dict = {
+        'n_edges': dag.number_of_edges(),
         'order_strength': order_strength,
         'average_number_of_immediate_predecessors': aip,
         'max_degree': max_degree,
@@ -366,6 +367,7 @@ def generate_graph_metrics(dag):
         'avg_chain_length': avg_length,
         'nodes_in_chains': nodes_in_chains,
         'n_stages': n_stages,
+        'stages_div_n': n_stages/dag.number_of_edges(),
         'prec_strength': precedence_strength,
         'prec_bias': precedence_bias,
         'prec_index': precedence_index,
