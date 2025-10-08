@@ -82,6 +82,7 @@ def parse_alb_results_orig_bbr(output_text):
     }
 
     lines = output_text.strip().split('\n')
+    print("solver output: ", output_text)
     in_solution = False
     pending_lbs = {}
     for line in lines:
@@ -115,7 +116,6 @@ def parse_alb_results_orig_bbr(output_text):
                 result['n_stations'] = int(m.group(1))
             if m := re.search(r'cpu\s*=\s*([\d.]+)', line):
                 result['cpu'] = float(m.group(1))
-        print("pending lbs ", pending_lbs)
         # Parse bin packing lower bound
         if result['bin_lb'] is None and result['n_stations'] is not None:
             for key in ('first', 'second'):
