@@ -230,7 +230,7 @@ def priority_edge_solves(edge, alb, n_random=100):
     priority_sol = salbp1_prioirity_solve(new_dict, n_random=n_random)
     return priority_sol['n_stations']
 
-def get_combined_edge_and_graph_data( alb, graph_data):
+def get_combined_edge_and_graph_data( alb, graph_data, edge_solve=True, n_random_solves=0):
     '''Gets edge and graph data for an instance'''
     start_time = time.time()
     edge_list = []
@@ -247,8 +247,8 @@ def get_combined_edge_and_graph_data( alb, graph_data):
     for idx, edge in enumerate(alb['precedence_relations']):
 
         neighborhood_info = edge_weights[tuple(edge)]
-        n_stations = priority_edge_solves(edge, alb)
-        stations_delta = graph_data['priority_min_stations'] - n_stations
+        
+        
         chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
         chain_avg = np.mean(chain_info['weights'])
         chain_min = np.min(chain_info['weights'])
@@ -283,10 +283,9 @@ def get_combined_edge_and_graph_data( alb, graph_data):
         child_pos_weight = positional_weights[edge[1]]
         child_load_data = get_load_data(load_stats, edge[1], "load_child_")
         end_time = time.time() - start_time
-        edge_list.append({ **graph_data,
+        res_dict = { **graph_data,
                             'edge': edge, 
                             'idx': idx, 
-                            'stations_delta':stations_delta,
                             'parent_weight':parent_weight,
                             'parent_pos_weight': parent_pos_weight,
                             'parent_stage': parent_stage,
@@ -310,7 +309,14 @@ def get_combined_edge_and_graph_data( alb, graph_data):
                             **parent_walk_data, 
                             **child_walk_data,
                             **parent_load_data,
-                            **child_load_data})
+                            **child_load_data}
+        if edge_solve:
+            edge_solve_time = time.time()
+            n_stations = priority_edge_solves(edge, alb, n_random_solves)
+            stations_delta = graph_data['priority_min_stations'] - n_stations
+            edge_solve_time = time.time() - edge_solve_time
+            res_dict = {**res_dict,'stations_delta':stations_delta, 'edge_solve_time':edge_solve_time }
+        edge_list.append(res_dict)
     return edge_list
 
 
