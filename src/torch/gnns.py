@@ -2,11 +2,9 @@
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv
-from torch_geometric.loader import DataLoader
 import torch.nn as nn
 from torch_geometric.nn import global_mean_pool
-from torch.utils.data import random_split
-from torch_geometric.utils import scatter
+
 class EdgeClassifier(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
     def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None):
@@ -30,7 +28,8 @@ class EdgeClassifier(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.conv2(x, edge_index)
-        
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
         # Edge embedding - gather node features for each edge
         parents, children = edge_index
         edge_features = torch.cat([x[parents], x[children]], dim=1)

@@ -83,7 +83,7 @@ def get_x_feature_vector(salbp_inst, instance_df, debug_time = False):
         task_df = pd.DataFrame(list(salbp_inst['task_times'].items()), columns=["node", "value"])
         task_df["node"] = task_df["node"].astype(int)
         node_df["node"] = node_df["node"].astype(int)
-        task_df = task_df.merge(node_df, on="node", how= "left")
+        task_df = task_df.merge(node_df, on="node", how= "left").fillna(0)
         if debug_time:
             nan_rows = task_df[task_df.isna().any(axis=1)]
             if not nan_rows.empty:
@@ -105,12 +105,13 @@ def get_x_feature_vector(salbp_inst, instance_df, debug_time = False):
         
 
 
-class EdgeClassificationDataset(Dataset):
+class EdgeClassificationDataset(InMemoryDataset):
     def __init__(self, csv_path, pickle_dir, root):
         self.csv_path = csv_path
         self.pickle_dir = pickle_dir
         super().__init__(root)
-        
+        self.load(self.processed_paths[0])
+
     @property
     def raw_file_names(self):
         return self.csv_path 
@@ -118,11 +119,16 @@ class EdgeClassificationDataset(Dataset):
     @property
     def processed_file_names(self):
         # One file per instance
-        df = pd.read_csv(self.csv_path)
-        return [f'data_{i}.pt' for i in range(len(df.groupby('instance')))]
+        # df = pd.read_csv(self.csv_path)
+        # return [f'data_{i}.pt' for i in range(len(df.groupby('instance')))]
+        #One file for all instances
+        return ['processed.pt']
     
     def process(self):
+        data_list = []
         df = pd.read_csv(self.csv_path)
+        
+
         if 'no_stations' in df.columns:
             df.rename(columns={'no_stations':'n_stations'}, inplace=True)
         # Load pickles
@@ -172,14 +178,11 @@ class EdgeClassificationDataset(Dataset):
                 edge_names=instance_df['edge'].tolist() 
 
             )
+            data_list.append(data)
+        data, slices = self.collate(data_list)
+        torch.save((data, slices), self.processed_paths[0])
+    
 
-            torch.save(data, self.processed_paths[idx])
-    
-    def len(self):
-        return len(self.processed_file_names)
-    
-    def get(self, idx):
-        return torch.load(self.processed_paths[idx])
 
 class SALBDataset(InMemoryDataset):
     def __init__(self, root, edge_data_csv, alb_filepaths=None, transform=None, pre_transform=None, 

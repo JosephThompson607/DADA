@@ -200,13 +200,12 @@ def set_new_edges(G_max_red, orig_salbp):
     topo_G, old_to_new, new_to_old = rename_nodes_topological(G_max_red)
     new_salbp = copy.deepcopy(orig_salbp)
     new_task_times = {}
-    print("this is the original salbp: ", orig_salbp)
+
     for task, time in orig_salbp['task_times'].items():
         new_task_times[old_to_new[task]] = time
     new_salbp['precedence_relations'] = [[e1, e2] for (e1,e2) in topo_G.edges()]
     #Need to respect order in task times or else bbr solver will break =/
     new_salbp['task_times'] = {k: new_task_times[k] for k in sorted(new_task_times, key=lambda x: int(x))}
-    print("this is the new salbp", new_salbp)
     return new_salbp, new_to_old
 
 
@@ -253,7 +252,6 @@ def myopic_choice(edges, orig_salbp, G_max_red_orig, ex_fp , q_check_tl=3):
         if res['n_stations'] < station_best:
             station_best = res['n_stations']
             best_edge = edge
-            print("current best: ", station_best, " edge ", best_edge)
             if res['n_stations'] == res['bin_lb']:
                 break
         # Create list without current item
@@ -374,10 +372,7 @@ def select_best_edge(edge_prob_df, valid_edges):
     then return the edge with the highest predicted probability.
     """
     # Filter DataFrame by valid edges
-    print('edges of the edge prob df ',edge_prob_df['edge'] )
-    
     valid_edges = set([(str(e1),str(e2)) for (e1,e2) in valid_edges])
-    print('edges of the valid edges: ', valid_edges)
     edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
     filtered = edge_prob_df[edge_prob_df['valid']==True]
     if filtered.empty:
@@ -390,16 +385,16 @@ def select_best_edge(edge_prob_df, valid_edges):
 
 def myopic_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,**new_kwargs):
     '''Selects the edge with the highest probability of reducing the objective value'''
-    print('original salbp edges ', orig_salbp['precedence_relations'])
+
     prob_df = predictor(orig_salbp, G_max_red, ml_model)
     best_edge = select_best_edge(prob_df, edges)
-    print('selecting this edge', best_edge)
+
     return best_edge
 
 
 
 
-def greedy_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='myopic',ml_model = None,**mhkwargs):
+def greedy_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='myopic',ml_model = None, seed=42,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
     G_max_red = nx.transitive_reduction(G_max_close)
@@ -414,6 +409,7 @@ def greedy_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_c
     orig_n_stations = res['n_stations']
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
+    random.seed(seed)
 
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
     query_vals = [{"n_stations":orig_n_stations, "OS":order_strength}]
@@ -423,7 +419,6 @@ def greedy_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_c
             break
         
         edges = get_possible_edges(G_max_red, G_min)
-        print("edges ,", edges)
         random.shuffle(edges)
         greedy_time = time.time()
         if selector_method == 'myopic':
@@ -437,7 +432,6 @@ def greedy_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_c
         test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
         res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=q_check_tl, orig_bbr=orig_bbr)
         n_stations = res['n_stations']
-        print(f"SALBP number of stations at query  {q+1} : {n_stations}, order strength: {order_strength}")
         query_vals.append({"n_stations":n_stations, "OS":order_strength})
     return G_max_red, query_vals, bin_limit
 
@@ -450,13 +444,13 @@ def get_feasible_seq(albp, n_seq, seed=42):
     return feasible_sequences
 
 
-def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_method, time_limit=1, **mh_kwargs):
+def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_method, time_limit=1,seed=42, **mh_kwargs):
     G_max_close2 = G_max_close.copy()
           
     G_min = nx.DiGraph()
     G_min.add_nodes_from(albp_problem["task_times"].keys())
     r_time = time.time()
-    G_max_red_random, random_query_vals, random_bin_limit =  greedy_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, time_limit=time_limit,selector_method=selector_method, **mh_kwargs)
+    G_max_red_random, random_query_vals, random_bin_limit =  greedy_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, time_limit=time_limit,selector_method=selector_method,seed=seed, **mh_kwargs)
     r_time = time.time()-r_time
     os = [d["OS"] for d in random_query_vals]
     val = [d["n_stations"] for d in random_query_vals]
@@ -464,44 +458,61 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_metho
 
 
 
-def constraint_elim(albp_problem, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_model):
+def constraint_elim(albp_problem, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_model_fp, base_seed=None, fast_only=False):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
-
+    with open(ml_model_fp, 'rb') as f:
+        ml_model = pickle.load(f)
     res_list = []
     for attempt_ind in range(n_tries):
-            
-            #albp_problem = parse_alb("/Users/letshopethisworks2/Documents/phd_paper_material/DADA/test.alb")
-            feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=attempt_ind+42)
-            metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method}
-            G_max_close = seqs_to_dag(feasible_sequences)
-            G_max_close2 = G_max_close.copy()
-          
-            G_min = nx.DiGraph()
-            G_min.add_nodes_from(albp_problem["task_times"].keys())
-            # r_time = time.time()
-            # G_max_red_random, random_query_vals, random_bin_limit =  non_repeating_strat_w_eval(G_max_close2, G_min,albp_problem,n_queries, ex_fp )
-            # r_time = time.time()-r_time
-            # os = [d["OS"] for d in random_query_vals]
-            # val = [d["n_stations"] for d in random_query_vals]
-            # res_list.append({'method':'random', 'time': r_time, 'OS':os,'query_values':val,  'bin_lb':random_bin_limit, **metadata})
-            # # #hoffman
-            # mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method)
-            # res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
-            # #Prioriy
-            # priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method)
-            # res_list.append({**metadata, **priority_res, 'method':'priority'})
+        #albp_problem = parse_alb("/Users/letshopethisworks2/Documents/phd_paper_material/DADA/test.alb")
+        feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=attempt_ind+base_seed)
+        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method}
+        G_max_close = seqs_to_dag(feasible_sequences)
+        G_max_close2 = G_max_close.copy()
+        
+        G_min = nx.DiGraph()
+        G_min.add_nodes_from(albp_problem["task_times"].keys())
+        r_time = time.time()
+        G_max_red_random, random_query_vals, random_bin_limit =  non_repeating_strat_w_eval(G_max_close2, G_min,albp_problem,n_queries, ex_fp )
+        r_time = time.time()-r_time
+        os = [d["OS"] for d in random_query_vals]
+        val = [d["n_stations"] for d in random_query_vals]
+        res_list.append({'method':'random', 'time': r_time, 'OS':os,'query_values':val,  'bin_lb':random_bin_limit, **metadata})
+        # #hoffman
+        mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=attempt_ind+base_seed)
+        res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
+        #Prioriy
+        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=attempt_ind+base_seed)
+        res_list.append({**metadata, **priority_res, 'method':'priority'})
+        # print("calculating ml results now")
+        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, myopic_ml_choice_edge,selector_method="ml", seed=attempt_ind+base_seed,ml_model=ml_model, )
+        res_list.append({**metadata, **priority_res, 'method':'Adaboost'})
+        if not fast_only:
+            print("running vdls and bbr ")
             #vdls
-            # vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,time_limit=1)
-            # res_list.append({ **metadata, **vdls_res,'method':'vdls'})
-            # #bbr
-            # bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,time_limit=1, w_bin_pack=False)
-            # res_list.append({ **metadata, **bbr_res,'method':'bbr'})
-            print("calculating ml results now")
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, myopic_ml_choice_edge,selector_method="ml", ml_model=ml_model)
-            res_list.append({**metadata, **priority_res, 'method':'Adaboost'})
+            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=attempt_ind+base_seed,time_limit=1)
+            res_list.append({ **metadata, **vdls_res,'method':'vdls'})
+            #bbr
+            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=attempt_ind+base_seed,time_limit=1, w_bin_pack=False)
+            res_list.append({ **metadata, **bbr_res,'method':'bbr'})
+        
 
     my_df = pd.DataFrame(res_list)
     my_df.to_csv(f"{save_folder}/{name}.csv", index=False)
+
+def safe_constraint_elim(*args):
+    try:
+        return constraint_elim(*args)
+    except Exception as e:
+        print(f"Error in constraint_elim: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+def test_func(x):
+    print(f"Processing {x}")
+    return x * 2
 
 def main():
     parser = argparse.ArgumentParser(description="Run experiment with given dataset and parameters.")
@@ -553,9 +564,17 @@ def main():
         "--dp_search",
         type=str,
         required=False,
-        default = "greedy",
-        help="When searching dp tree, what strategy to use. There is myopic, greedy, and ml (default:%(default)s)"
+        default = "myopic",
+        help="When searching dp tree, what strategy to use. There is myopic, greedy,  (default:%(default)s)"
     )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        required=False,
+        default = "all",
+        help="what methods to use. (default:%(default)s)"
+    )
+
 
 
     parser.add_argument(
@@ -570,25 +589,41 @@ def main():
         default=0,
         help="Index of pkl dataset entry to start (default: %(default)s)"
     )
+
     parser.add_argument(
         "--end",
         type=int,
         default=None,
         help="Index of pkl dataset entry to start (default: %(default)s)"
     )
+    parser.add_argument(
+        "--base_seed",
+        type=int,
+        default=42,
+        help="Seed of random number generator. Each try will increment the base seed by one(default: %(default)s)"
+    )
+    
     
 
     args = parser.parse_args()
     alb_dicts = open_salbp_pickle(args.fp)[args.start:args.end]
+    if args.methods=="fast_only":
+        fast_only= True
+    else:
+        fast_only=False
     out_folder = Path(args.out_folder)
     out_folder.mkdir(parents=True, exist_ok=True)
     #albp_problem = alb_dicts[0]
-    with open(args.ml_model_fp, 'rb') as f:
-        boost_edge = pickle.load(f)
-    constraint_elim(alb_dicts[1], 2, args.ex_fp, args.out_folder, args.n_queries,args.n_seq, 'myopic', boost_edge)
-    # with multiprocessing.Pool(args.pool_size) as pool:
-    #     results = pool.starmap(constraint_elim, [(alb,args.n_xps, args.ex_fp, args.out_folder, args.n_queries, args.n_seq, args.dp_search, boost_edge) for alb in alb_dicts])
-        
+
+    print("starting seed: ", args.base_seed)
+    #FOR TESTING 1 instance
+    #constraint_elim(alb_dicts[1], 2, args.ex_fp, args.out_folder, args.n_queries,args.n_seq, 'myopic', boost_edge,base_seed=args.base_seed, fast_only=fast_only )
+    #Parallelized run
+    print(alb_dicts)
+    with multiprocessing.Pool(args.pool_size) as pool:
+        print("starting pool")
+        _ = pool.starmap(safe_constraint_elim, [(alb,args.n_xps, args.ex_fp, args.out_folder, args.n_queries, args.n_seq, args.dp_search, args.ml_model_fp, args.base_seed, fast_only) for alb in alb_dicts])
+        #results = pool.map(test_func, range(5))
 
     
 if __name__ == "__main__":

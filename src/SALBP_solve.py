@@ -37,7 +37,6 @@ def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = Tr
         write_to_alb(salbp_dict, temp_alb_path)
         #output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if w_bin_pack:
-            print("running with bin pack ")
             output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
             output = subprocess.run([ex_fp, "-m", f"{branch}","-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -82,7 +81,6 @@ def parse_alb_results_orig_bbr(output_text):
     }
 
     lines = output_text.strip().split('\n')
-    print("solver output: ", output_text)
     in_solution = False
     pending_lbs = {}
     for line in lines:
@@ -744,7 +742,6 @@ def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, st
                 alb_files +=  open_salbp_pickle(pf)
         else:
             alb_files = open_salbp_pickle(fp)
-        print("here is the res df", res_df.head())
         instances = set(res_df['instance'])
         filtered_files = []
         for alb in alb_files:
@@ -787,7 +784,6 @@ def generate_results_from_pickle(fp  ,out_fp, res_df ,  ex_fp ,  backup_name , p
                 alb_files +=  open_salbp_pickle(pf)
         else:
             alb_files = open_salbp_pickle(fp)
-        print("here is the res df", res_df.head())
         instances = set(res_df['instance'])
         filtered_files = []
         for alb in alb_files:

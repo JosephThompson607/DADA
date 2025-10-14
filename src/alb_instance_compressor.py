@@ -168,7 +168,6 @@ def write_to_alb(salbp_dict, alb_file_name):
         alb += str(relation[0]) + "," + str(relation[1]) + "\n"
     #ends the file
     alb += "<end>"
-    print("here is what is sent to the solver", alb)
     with open(alb_file_name, "w") as alb_file:
         alb_file.write(alb)
 
