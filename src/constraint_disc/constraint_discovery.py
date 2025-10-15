@@ -210,12 +210,12 @@ def set_new_edges(G_max_red, orig_salbp):
 
 
 
-def non_repeating_strat_w_eval(G_max_close, G_min, orig_salbp, n_queries , ex_fp):
+def non_repeating_strat_w_eval(G_max_close, G_min, orig_salbp, n_queries , ex_fp, q_check_tl = 3):
     G_true = albp_to_nx(orig_salbp)
     G_max_red = nx.transitive_reduction(G_max_close)
     order_strength = calculate_order_strength(G_max_red)
     test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-    res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=3)
+    res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=q_check_tl)
     orig_n_stations = res['n_stations']
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
@@ -458,7 +458,7 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_metho
 
 
 
-def constraint_elim(albp_problem, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_model_fp, base_seed=None, fast_only=False):
+def constraint_elim(albp_problem, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_model_fp, base_seed=None, fast_only=False, q_check_tl=3):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
     with open(ml_model_fp, 'rb') as f:
         ml_model = pickle.load(f)
@@ -473,27 +473,27 @@ def constraint_elim(albp_problem, n_tries, ex_fp, save_folder, n_queries,n_start
         G_min = nx.DiGraph()
         G_min.add_nodes_from(albp_problem["task_times"].keys())
         r_time = time.time()
-        G_max_red_random, random_query_vals, random_bin_limit =  non_repeating_strat_w_eval(G_max_close2, G_min,albp_problem,n_queries, ex_fp )
+        G_max_red_random, random_query_vals, random_bin_limit =  non_repeating_strat_w_eval(G_max_close2, G_min,albp_problem,n_queries, ex_fp, q_check_tl=q_check_tl )
         r_time = time.time()-r_time
         os = [d["OS"] for d in random_query_vals]
         val = [d["n_stations"] for d in random_query_vals]
         res_list.append({'method':'random', 'time': r_time, 'OS':os,'query_values':val,  'bin_lb':random_bin_limit, **metadata})
         # #hoffman
-        mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=attempt_ind+base_seed)
+        mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=attempt_ind+base_seed, q_check_tl=q_check_tl)
         res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
         #Prioriy
-        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=attempt_ind+base_seed)
+        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=attempt_ind+base_seed, q_check_tl=q_check_tl)
         res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
-        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, myopic_ml_choice_edge,selector_method="ml", seed=attempt_ind+base_seed,ml_model=ml_model, )
+        priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, myopic_ml_choice_edge,selector_method="ml", seed=attempt_ind+base_seed,ml_model=ml_model, q_check_tl=q_check_tl )
         res_list.append({**metadata, **priority_res, 'method':'Adaboost'})
         if not fast_only:
             print("running vdls and bbr ")
             #vdls
-            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=attempt_ind+base_seed,time_limit=1)
+            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=attempt_ind+base_seed,time_limit=1, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **vdls_res,'method':'vdls'})
             #bbr
-            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=attempt_ind+base_seed,time_limit=1, w_bin_pack=False)
+            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=attempt_ind+base_seed,time_limit=1, w_bin_pack=False, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **bbr_res,'method':'bbr'})
         
 
@@ -602,6 +602,13 @@ def main():
         default=42,
         help="Seed of random number generator. Each try will increment the base seed by one(default: %(default)s)"
     )
+    parser.add_argument(
+        "--q_check_tl",
+        type=int,
+        default=5,
+        help="How long to spend on BBR evaluation of previous constraint elimination (default: %(default)s)"
+    )
+    
     
     
 
@@ -619,10 +626,9 @@ def main():
     #FOR TESTING 1 instance
     #constraint_elim(alb_dicts[1], 2, args.ex_fp, args.out_folder, args.n_queries,args.n_seq, 'myopic', boost_edge,base_seed=args.base_seed, fast_only=fast_only )
     #Parallelized run
-    print(alb_dicts)
     with multiprocessing.Pool(args.pool_size) as pool:
         print("starting pool")
-        _ = pool.starmap(safe_constraint_elim, [(alb,args.n_xps, args.ex_fp, args.out_folder, args.n_queries, args.n_seq, args.dp_search, args.ml_model_fp, args.base_seed, fast_only) for alb in alb_dicts])
+        _ = pool.starmap(safe_constraint_elim, [(alb,args.n_xps, args.ex_fp, args.out_folder, args.n_queries, args.n_seq, args.dp_search, args.ml_model_fp, args.base_seed, fast_only, args.q_check_tl) for alb in alb_dicts])
         #results = pool.map(test_func, range(5))
 
     
