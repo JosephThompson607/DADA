@@ -230,7 +230,7 @@ def priority_edge_solves(edge, alb, n_random=100):
     priority_sol = salbp1_prioirity_solve(new_dict, n_random=n_random)
     return priority_sol['n_stations']
 
-def get_combined_edge_and_graph_data( alb, graph_data, edge_solve=True, n_random_solves=0):
+def get_combined_edge_and_graph_data(alb, graph_data,  n_random_solves=0, feature_types={"all"}):
     '''Gets edge and graph data for an instance'''
     start_time = time.time()
     edge_list = []
@@ -242,8 +242,10 @@ def get_combined_edge_and_graph_data( alb, graph_data, edge_solve=True, n_random
     positional_weights = get_all_positional_weight(G)
     longest_chains_to, longest_chains_from = longest_weighted_chains(G)
     edge_weights = get_edge_neighbor_max_min_avg_std(G)
-    walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
-    load_stats = graph_data.pop('load_stats')
+    if not feature_types.isdisjoint({'all', 'rw'}):
+        walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
+    if not feature_types.isdisjoint({'all', 'grapheval'}):
+        load_stats = graph_data.pop('load_stats')
     for idx, edge in enumerate(alb['precedence_relations']):
 
         neighborhood_info = edge_weights[tuple(edge)]
@@ -260,28 +262,14 @@ def get_combined_edge_and_graph_data( alb, graph_data, edge_solve=True, n_random
         parent_weight = neighborhood_info['edge_0_weight']
         parent_stage = len(longest_chains_to[edge[0]]['nodes'])
         parent_pos_weight = positional_weights[edge[0]]
-        #gets the row of the parent's walk data
-        parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
-        #drops node from parent_walk_data
-        parent_walk_data.drop('node', axis=1, inplace=True)
-        #converts parent_walk_data to a dictionary
-        parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
-        #Gets parent load data 
-        parent_load_data = get_load_data(load_stats, edge[0], "load_parent_")
+
         
         child_weight = neighborhood_info['edge_1_weight']
         child_stage = len(longest_chains_to[edge[1]]['nodes'])
         child_in_degree = G.in_degree(edge[1])
         child_out_degree = G.out_degree(edge[1])
-        #gets child walk data
-        child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
-        #drops node from parent_walk_data
-        child_walk_data.drop('node', axis=1, inplace=True)
-        #converts parent_walk_data to a dictionary
-        child_walk_data = child_walk_data.to_dict(orient='records')[0]
-        child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
+      
         child_pos_weight = positional_weights[edge[1]]
-        child_load_data = get_load_data(load_stats, edge[1], "load_child_")
         end_time = time.time() - start_time
         res_dict = { **graph_data,
                             'edge': edge, 
@@ -305,12 +293,28 @@ def get_combined_edge_and_graph_data( alb, graph_data, edge_solve=True, n_random
                             'chain_min': chain_min, 
                             'chain_max': chain_max, 
                             'chain_std': chain_std, 
-                            'edge_data_time':end_time, 
-                            **parent_walk_data, 
-                            **child_walk_data,
-                            **parent_load_data,
-                            **child_load_data}
-        if edge_solve:
+                            'edge_data_time':end_time, }
+        if not feature_types.isdisjoint({'all', 'grapheval'}):
+            #Gets parent load data 
+            parent_load_data = get_load_data(load_stats, edge[0], "load_parent_")
+            child_load_data = get_load_data(load_stats, edge[1], "load_child_")
+            res_dict = {**res_dict, **parent_load_data, **child_load_data}
+        if not feature_types.isdisjoint({'all', 'rw'}):
+            #gets the row of the parent's walk data
+            parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
+            #drops node from parent_walk_data
+            parent_walk_data.drop('node', axis=1, inplace=True)
+            #converts parent_walk_data to a dictionary
+            parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
+            #gets child walk data
+            child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
+            #drops node from parent_walk_data
+            child_walk_data.drop('node', axis=1, inplace=True)
+            #converts parent_walk_data to a dictionary
+            child_walk_data = child_walk_data.to_dict(orient='records')[0]
+            child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
+            res_dict = {**res_dict, **parent_walk_data, **child_walk_data}
+        if not feature_types.isdisjoint({'all', 'edgeeval'}):
             edge_solve_time = time.time()
             n_stations = priority_edge_solves(edge, alb, n_random_solves)
             stations_delta = graph_data['priority_min_stations'] - n_stations

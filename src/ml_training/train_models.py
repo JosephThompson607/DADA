@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
 import xgboost as xgb
-
+import argparse
+import yaml
 src_path = os.path.abspath("src")
 if src_path not in sys.path:
     sys.path.append(src_path)
@@ -20,7 +21,7 @@ from metrics.time_metrics import *
 import multiprocessing
 import time
 import pickle
-
+from datetime import datetime
 
 import numpy as np
 from sklearn.metrics import accuracy_score, classification_report
@@ -107,7 +108,7 @@ def load_miranda():
     unstructured_50.rename(columns = {'orig_stations':'s_orig'}, inplace=True)
     unstructured_50['n_tasks'] = 50
     unstructured_50, unstructured_50_graph = data_preprocessing_salbp1(unstructured_50)
-    print("moving on to larger instances")
+    print("loaded small instances, moving on to larger instances")
     bott_100 = pd.read_csv("data/results/bottleneck_100/bottleneck_100_ml_ready.csv")
     bott_100['dataset'] = "bottleneck"
     bott_100.rename(columns = {'orig_stations':'s_orig'}, inplace=True)
@@ -164,97 +165,33 @@ def load_miranda():
     return combined_graph, combined
 
 
-def main():
-    continuous_features_edge = [
-        'parent_weight', 'parent_pos_weight',
-            'child_weight', 'child_pos_weight', 'neighborhood_min',
-            'neighborhood_max', 'neighborhood_avg', 'neighborhood_std',
-            'parent_in_degree', 'parent_out_degree', 'child_in_degree',
-            'child_out_degree', 'chain_avg', 'chain_min', 'chain_max', 'chain_std',
-            'edge_data_time', 'rw_mean_total_time', 'rw_mean_min_time',
-            'rw_mean_max_time', 'rw_mean_n_unique_nodes',
-            'rw_min', 'rw_max', 'rw_mean', 'rw_std', 'rw_n_unique_nodes', 'child_rw_mean_total_time', 'child_rw_mean_min_time',
-            'child_rw_mean_max_time', 'child_rw_mean_n_unique_nodes', 'child_rw_min', 'child_rw_max',
-            'child_rw_mean', 'child_rw_std', 'child_rw_n_unique_nodes', 'priority_min_gap', 'priority_max_gap',
-            'random_spread', 'random_coefficient_of_variation', 'random_avg_gap',
-            'random_min_gap', 'random_max_gap', 
-                'ti_size',
-                'prec_bias',
-                'stage_difference',
-                'prec_strength',
-                'stations_delta',
-                'load_parent_mean' ,
-                'load_parent_max' ,
-                'load_parent_min' ,
-                'load_parent_std' ,
-                'load_child_mean' ,
-                'load_child_max' ,
-                'load_child_min' ,
-                'load_child_std' ,
-            'min_div_c', 'max_div_c',  'std_div_c','avg_div_c',
-            'order_strength', 'average_number_of_immediate_predecessors',
-            'max_degree', 'max_in_degree', 'max_out_degree', 'divergence_degree',
-            'convergence_degree',  'share_of_bottlenecks',
-                'avg_chain_length',
-            'nodes_in_chains', 'stages_div_n', 'n_isolated_nodes',
-            'share_of_isolated_nodes', 'n_tasks_without_predecessors',
-            'share_of_tasks_without_predecessors', 'avg_tasks_per_stage',
-        ] 
+def train_models(feature_fp, out_folder, prefix):
 
 
 
-    #removed_graph = ["'n_chains','n_bottlenecks','avg_degree_of_bottlenecks', 
-    continuous_features_graph = [
-        'min_div_c', 'max_div_c',  'std_div_c','avg_div_c',
-        'order_strength', 'average_number_of_immediate_predecessors',
-        'max_degree', 'max_in_degree', 'max_out_degree', 'divergence_degree', 'priority_min_gap', 'priority_max_gap',
-        'random_spread', 'random_coefficient_of_variation', 'random_avg_gap',
-        'random_min_gap', 'random_max_gap', 
-        'convergence_degree',  'share_of_bottlenecks',
-            'avg_chain_length',
-        'nodes_in_chains', 'stages_div_n', 'n_isolated_nodes',
-        'share_of_isolated_nodes', 'n_tasks_without_predecessors',
-        'share_of_tasks_without_predecessors', 'avg_tasks_per_stage',
 
-    ]
-    print("loading data")
-    
+    print("using features specified in ", feature_fp)
+    with open(feature_fp, 'r') as file:
+        data = yaml.safe_load(file)
+        features_list = data['features']
     combined_graph, combined = load_miranda()
    
     df = combined
-    X = df[continuous_features_edge]
+    X = df[features_list]
     y = df['is_less_max']  # Target variable
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    X_2 = combined_graph[continuous_features_graph]
-    y_2 = combined_graph['min_less_max']  # Target variable
 
-    
-    X_train_2, X_test_2, y_train_2, y_test_2 = train_test_split(X_2, y_2, test_size=0.2, random_state=42, stratify=y_2)
     print("training rf edge")
     rf_edge, (fpr, tpr, rf_edge_info)  = train_random_forest(X_train, y_train, X_test, y_test, n_estimators=300,min_samples_leaf=3, min_samples_split=5, criterion="entropy", max_depth=25, class_weight=None)
-    print("edge aoc", rf_edge_info)
-    print("training rf graph classifier")
-    rf_graph, (fpr_graph, tpr_graph, rf_info) = train_random_forest(X_train_2, y_train_2, X_test_2, y_test_2, n_estimators=300,min_samples_split=2, min_samples_leaf=3,max_depth=20, criterion='entropy', class_weight='balanced')
-    print("graph aoc ", rf_info)
-    feature_names = [f'feature_{i}' for i in range(X_train_2.shape[1])]
-    importance = rf_graph.feature_importances_
-
-    importance_df = pd.DataFrame({
-        'feature': feature_names,
-        'importance': importance,
-        'name': continuous_features_graph,
-    }).sort_values('importance', ascending=False)
-
-    print(importance_df)
+    print("edge aoc", rf_edge_info, " saving ")
 
 
     # Save the model
-    with open('rf_edge.pkl', 'wb') as f:
+    with open(out_folder +f"{prefix}_rf_edge_{datetime.now().strftime('%Y-%m-%d')}.pkl", 'wb') as f:
         pickle.dump(rf_edge, f)
     # Save the model
-    with open('rf_graph.pkl', 'wb') as f:
-        pickle.dump(rf_graph, f)
+
     edge_params =     {
         "subsample": 1.0,
         "reg_lambda": 100,
@@ -266,29 +203,55 @@ def main():
         "gamma": 0,
         "colsample_bytree": 0.7
     }
-    graph_params = {
-        "subsample": 0.7,
-            "reg_lambda": 1,
-            "reg_alpha": 0.01,
-            "n_estimators": 750,
-            "min_child_weight": 3,
-            "max_depth": 8,
-            "learning_rate": 0.01,
-            "gamma": 0.5,
-            "colsample_bytree": 0.7
-    }
+    # graph_params = {
+    #     "subsample": 0.7,
+    #         "reg_lambda": 1,
+    #         "reg_alpha": 0.01,
+    #         "n_estimators": 750,
+    #         "min_child_weight": 3,
+    #         "max_depth": 8,
+    #         "learning_rate": 0.01,
+    #         "gamma": 0.5,
+    #         "colsample_bytree": 0.7
+    # }
     print("Training xg_boost edge")
     boost_edge, (fpr_boost_edge, tpr_boost_edge, roc_aoc_edge_bost) = train_xg_boost(X_train,y_train,X_test,y_test, **edge_params)
     print("edge aoc", roc_aoc_edge_bost)
-    print("training xg boost graph")
-    boost_graph, (fpr_boost_edge, tpr_boost_edge, roc_aoc_graph_bost) = train_xg_boost(X_train_2,y_train_2,X_test_2,y_test_2, **graph_params)
-    print("graph aoc", roc_aoc_graph_bost)
-    with open('boost_edge.pkl', 'wb') as f:
+    # print("training xg boost graph")
+    # boost_graph, (fpr_boost_edge, tpr_boost_edge, roc_aoc_graph_bost) = train_xg_boost(X_train_2,y_train_2,X_test_2,y_test_2, **graph_params)
+    # print("graph aoc", roc_aoc_graph_bost)
+    with open(out_folder+f"{prefix}_boost_edge_{datetime.now().strftime('%Y-%m-%d')}.pkl", 'wb') as f:
         pickle.dump(boost_edge, f)
     # Save the model
-    with open('boost_graph.pkl', 'wb') as f:
-        pickle.dump(boost_graph, f)
+    # with open('boost_graph.pkl', 'wb') as f:
+    #     pickle.dump(out_folder+boost_graph, f)
 
     print()
+
+def main():
+    parser = argparse.ArgumentParser(description="Run experiment with given dataset and parameters.")
+
+    parser.add_argument(
+        "--config_fp",
+        type=str,
+        required=True,
+        help="Path to the ML config file"
+    )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        required=False,
+        default="",
+        help="string to prepend to trained model files"
+    )
+
+    parser.add_argument(
+        "--out_folder",
+        type=str,
+        required=True,
+        help="Output folder to store results"
+    )
+    args = parser.parse_args()
+    train_models(args.config_fp, args.out_folder, args.prefix)
 if __name__ == "__main__":
     main()
