@@ -75,9 +75,13 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
     depth = beam_config["depth"]
     G_max_close= G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
+    #Initial solution
+    new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
+    res = mh(new_salbp, **mhkwargs)
+    init_sol = Solution(res['n_stations'], [])
     history = set()
     elites = EliteSet(width)
-    queue = [Solution(None, [])]  # Queue of Solution(obj_val, removed_edges) 
+    queue = [init_sol]  # Queue of Solution(obj_val, removed_edges) 
     for c_d in range(depth):
         while len(queue) > 0:
             old_sol= queue.pop(0)
@@ -85,7 +89,7 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
             edges = get_possible_edges(G_max_red, G_min)
             for i, edge in enumerate(edges):
                         #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
-                new_removed = removed_edges+ [edge]
+                new_removed = removed_edges+ [(edge[0], edge[1])]
                 edge_set = frozenset(new_removed)
                 if edge_set in history:
                     continue
@@ -95,7 +99,12 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 G_max_red = remove_edges(G_max_close, new_removed)
                 new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
                 res = mh(new_salbp, **mhkwargs)
-                sol = Solution(res['n_stations'], new_removed)
+                if len(edge) ==3:
+                    probability = edge[2]
+                else:
+                    probability = 1
+                reward = max(0, probability*(old_sol.objective - res['n_stations']))
+                sol = Solution(reward, new_removed)
                 elites.add(sol)
         if c_d > 1:
             if elites.same_first_edge():
@@ -129,7 +138,7 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, beam_config = 
             edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, top_n=width, **mhkwargs)
             for edge, probability in edge_res:
                         #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
-                new_removed = to_remove+ [edge]
+                new_removed = to_remove+ [(edge[0], edge[1])]
                 edge_set = frozenset(new_removed)
                 if edge_set in history:
                     continue

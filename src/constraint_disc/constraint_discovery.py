@@ -71,6 +71,7 @@ def albp_to_nx(SALBP_dict):
     G.add_edges_from(SALBP_dict["precedence_relations"])
     nx.set_node_attributes(G, {i: {'task_time': SALBP_dict['task_times'][str(i)]} for i in G.nodes})
     return G
+
 def plot_salbp_dict(SALBP_dict):
     G = albp_to_nx(SALBP_dict)
     #prints the edges
@@ -89,6 +90,33 @@ def plot_salbp_graph(G):
     #prints the edges from the graph
     nx.draw(G,pos, with_labels = True)
     plt.show()
+
+def get_false_edges(orig_salb, G_max_edges):
+    true_edges = set([(e[0], e[1]) for e in orig_salb['precedence_relations']])
+    G_max_edges = set([(e[0], e[1]) for e in G_max_edges])
+    false_edges = G_max_edges - true_edges
+    return false_edges, true_edges
+
+def give_probabilities(false_edges, true_edges, true_prob=0.1, false_prob=0.9, xi=0.2, seed=None, precision=2):
+    if seed is not None:
+        random.seed(seed)
+    
+    true_probs = {edge: true_prob for edge in true_edges}
+    false_probs = {edge: false_prob for edge in false_edges}
+    probs = {**true_probs, **false_probs}
+
+    n_perturb = int(len(probs) * xi)
+    edges_to_perturb = random.sample(list(probs.keys()), n_perturb)
+
+    for edge in edges_to_perturb:
+        probs[edge] = 1 - probs[edge]
+    probs = {edge: round(prob, precision) for edge, prob in probs.items()}
+    return probs
+
+def edge_prob_generation(alb_instance, G_max_close, true_prob=0.1, false_prob=0.9, xi=0.2,seed=None):
+    false_edges, true_edges = get_false_edges(alb_instance, G_max_close.edges())
+    edge_probs = give_probabilities(false_edges, true_edges, true_prob=true_prob, false_prob=false_prob,xi=xi,seed=seed)
+    return edge_probs
 
 def albp_to_sequences(albp, n_sequences, seed=42):
     G = albp_to_nx(albp)
@@ -275,7 +303,8 @@ def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
 
 
 
-
+def constant_weight(*args,**kwargs):
+    return 1
 
 
 def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='best_first',ml_model = None, seed=42,**mhkwargs):
@@ -349,7 +378,7 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_metho
 
 
 
-def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_features_fp,beam_config, base_seed=None,  q_check_tl=3, n_random=10):
+def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_features_fp,beam_config, base_seed=None,  q_check_tl=3, n_random=10, edge_prob_data={}):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
     
 
@@ -362,10 +391,17 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         
     res_list = []
     for attempt_ind in range(n_tries):
+        #Sets a seed so that the different methods have the same seed for each attempt for comparability
+        trial_seed = attempt_ind+base_seed
         #albp_problem = parse_alb("/Users/letshopethisworks2/Documents/phd_paper_material/DADA/test.alb")
-        feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=attempt_ind+base_seed)
-        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method, "beam_width": beam_config['width'], "beam_depth":beam_config['depth']}
+        feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=trial_seed)
+
+        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method, "beam_width": beam_config['width'], "beam_depth":beam_config['depth'], "xi":xi}
         G_max_close = seqs_to_dag(feasible_sequences)
+        if edge_prob_data:
+            edge_probs = edge_prob_generation(albp_problem, G_max_close, xi=edge_prob_data['xi'])
+            nx.set_edge_attributes(G_max_close, edge_probs, name='prob')
+
         print("solving ",albp_problem['name'])
         if any(method in mh_methods for method in ["random", "all", "fast"]):
             print("running random")
@@ -381,28 +417,28 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
             print("running hoffman")     
             # #hoffman
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=attempt_ind+base_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
             res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
         if any(method in mh_methods for method in ["priority", "all", "fast"]):  
             print("running priority")
             #Prioriy
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=attempt_ind+base_seed, q_check_tl=q_check_tl, beam_config=beam_config, n_random=n_random)
+            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, n_random=n_random)
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
         if any(method in mh_methods for method in ["ml", "all", "fast"]):  
             print("running ml")
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=attempt_ind+base_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config, n_random=n_random )
+            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config, n_random=n_random )
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
 
         #vdls
         if any(method in mh_methods for method in ["vdls", "all", ]):  
             print("running vdls")
-            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=attempt_ind+base_seed,time_limit=1, q_check_tl=q_check_tl)
+            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=trial_seed,time_limit=1, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **vdls_res,'method':'vdls'})
         #bbr
         if any(method in mh_methods for method in ["bbr", "all", ]):  
             print("running bbr")
-            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=attempt_ind+base_seed,time_limit=1, w_bin_pack=False, q_check_tl=q_check_tl)
+            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=trial_seed,time_limit=1, w_bin_pack=False, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **bbr_res,'method':'bbr'})
     
     
@@ -505,9 +541,24 @@ def main():
         default = "fast",
         help="what methods to use. (default:%(default)s)"
     )
-
-
-
+    parser.add_argument(
+        "--xi",
+        type=float,
+        default=None,
+        help="Edge probability generation. Proportation of edges to randomly swap to simulate noise in the probability estimates(default: %(default)s)"
+    )
+    parser.add_argument(
+        "--false_prob",
+        type=float,
+        default=0.9,
+        help="Edge probability generation. Initial probability given to edges that are not part of the real graph that they are not part of the graph(default: %(default)s)"
+    )
+    parser.add_argument(
+        "--true_prob",
+        type=float,
+        default=0.9,
+        help="Edge probability generation. Initial probability given to edges that are part of the real graph that they are not part of the graph(default: %(default)s)"
+    )
     parser.add_argument(
         "--n_seq",
         type=int,
@@ -557,6 +608,10 @@ def main():
     out_folder.mkdir(parents=True, exist_ok=True)
     #albp_problem = alb_dicts[0]
     beam_config = {"width":args.width, "depth":args.depth}
+    if args.xi:
+        edge_prob_data = {"xi":args.xi, "true_prob":args.true_prob, "false_prob":args.false_prob}
+    else:
+        edge_prob_data = {}
     print("starting seed: ", args.base_seed)
     #FOR TESTING 1 instance
     #constraint_elim(alb_dicts[1], 2, args.ex_fp, args.out_folder, args.n_queries,args.n_seq, 'best_first', boost_edge,base_seed=args.base_seed, fast_only=fast_only )
@@ -576,7 +631,8 @@ def main():
                                             beam_config, 
                                             args.base_seed,  
                                             args.q_check_tl,
-                                            args.n_random) for alb in alb_dicts])
+                                            args.n_random,
+                                            edge_prob_data) for alb in alb_dicts])
         #results = pool.map(test_func, range(5))
 
     

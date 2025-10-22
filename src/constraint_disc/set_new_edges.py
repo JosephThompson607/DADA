@@ -34,9 +34,12 @@ def rename_nodes_topological(G):
 def get_possible_edges(G_max_red, G_min):
     G_min_close = nx.transitive_closure(G_min)
     candidates = []
-    for edge in  G_max_red.edges():
-        if not G_min_close.has_edge(edge[0], edge[1]):
-            candidates.append(edge)
+    for u,v,data in  G_max_red.edges(data=True):
+        if not G_min_close.has_edge(u, v):
+            if data:
+                candidates.append((u, v, data['prob']))
+            else:
+                candidates.append((u, v))
     return candidates
 
 def set_new_edges(G_max_red, orig_salbp):
