@@ -141,18 +141,16 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 best_value = min(res['n_stations'], old_sol.value) 
                 sol = Solution(reward,prob,best_value, new_removed)
                 elites.add(sol)
-        print("Here are the elites: ", elites.get_elites(sort_elites=True))
         if c_d > 1:
             if elites.same_first_edge():
                 
-                print("elites agree on next move. proceeding to query")
-                print(elites.get_elites())
+                # print("elites agree on next move. proceeding to query")
+                # print(elites.get_elites())
                 break
         queue = elites.get_elites(sort_elites=True)
     sol = elites.best()
     obj = sol.accumulated_reward
     edges = sol.edges
-    print("best elites", elites.best())
     return edges[0], obj
 
 #best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,**new_kwargs):
@@ -194,13 +192,11 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, beam_config = 
         if c_d >= 1:
             if elites.same_first_edge():
                 
-                print("elites agree on next move. proceeding to query")
-                print(elites.get_elites(sort_elites=True))
+                # print("elites agree on next move. proceeding to query")
+                # print(elites.get_elites(sort_elites=True))
                 break
 
-    print("current elites ", elites.get_elites(sort_elites=True))
     sol = elites.best()
-    print("best is ", sol)
-    obj = sol.objective
+    obj = sol.accumulated_reward
     edges = sol.edges
     return edges[0], obj

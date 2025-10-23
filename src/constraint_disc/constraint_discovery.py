@@ -631,7 +631,6 @@ def main():
                                             args.n_queries, 
                                             args.n_seq, 
                                             args.dp_search, 
-                                            args.ml_model_fp,
                                             args.ml_features_fp, 
                                             beam_config, 
                                             args.base_seed,  

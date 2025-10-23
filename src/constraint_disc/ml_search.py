@@ -36,7 +36,7 @@ def select_best_edge(edge_prob_df, valid_edges):
     then return the edge with the highest predicted probability.
     """
     # Filter DataFrame by valid edges
-    valid_edges = set([(str(e1),str(e2)) for (e1,e2) in valid_edges])
+    valid_edges = set([(str(e[0]),str(e[1])) for e in valid_edges])
     edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
     filtered = edge_prob_df[edge_prob_df['valid']==True]
     if filtered.empty:
@@ -57,7 +57,7 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
 
     # Filter DataFrame by valid edges
    
-    valid_edges = set([(str(e1),str(e2)) for (e1,e2) in valid_edges])
+    valid_edges = set([(str(e[0]),str(e[1])) for e in valid_edges])
     edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
     filtered = edge_prob_df[edge_prob_df['valid']==True]
     if filtered.empty:
@@ -70,9 +70,8 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
     return list(zip(best_rows['edge'], best_rows['reward'], best_rows['precedent_prob']))
 
 
-def best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,top_n=1, prob_weights=None, **kwargs):
+def best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,top_n=1,  **kwargs):
     '''Selects the edge with the highest probability of reducing the objective value'''
     prob_df = predictor(orig_salbp, G_max_red, ml_model, **kwargs)
-    best_edges = select_best_n_edges(prob_df, edges,top_n, prob_weights)
-
+    best_edges = select_best_n_edges(prob_df, edges,top_n)
     return best_edges
