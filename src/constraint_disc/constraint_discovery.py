@@ -21,7 +21,7 @@ from metrics.graph_features import calculate_order_strength
 from metrics.node_and_edge_features import randomized_kahns_algorithm
 
 from alb_instance_compressor import *
-from SALBP_solve import salbp1_bbr_call, salbp1_prioirity_solve, salbp1_vdls_dict, salbp1_mhh_solve
+from SALBP_solve import salbp1_bbr_call, salbp1_prioirity_solve, salbp1_vdls_dict, salbp1_hoff_solve
 build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
 sys.path.insert(0, build_dir)
 build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
@@ -167,6 +167,8 @@ def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
         G_max_close.remove_edge(edge[0], edge[1])
         successful_removal = True
         G_max_red= nx.transitive_reduction(G_max_close)
+        #copying over edge data
+        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     elif G_max_red.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
         G_min.add_edge(edge[0], edge[1])
     else:
@@ -303,8 +305,10 @@ def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
 
 
 
-def constant_weight(*args,**kwargs):
-    return 1
+def os_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
+    G = albp_to_nx(new_salbp)
+    os = calculate_order_strength(G)
+    return {output_name:os}
 
 
 def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='best_first',ml_model = None, seed=42,**mhkwargs):
@@ -317,15 +321,14 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
     if "BBR-for-SALBP1/" in ex_fp:
         orig_bbr = True
     res = salbp1_bbr_call(test_salbp,ex_fp, 1, w_bin_pack=True, time_limit=q_check_tl, orig_bbr=orig_bbr)
-    init_sol = res['task_assignments']
-    new_kwargs = {**mhkwargs, 'initial_solution':init_sol, 'ex_fp':ex_fp, 'orig_bbr':orig_bbr}
+    new_kwargs = {**mhkwargs, 'ex_fp':ex_fp, 'orig_bbr':orig_bbr}
     orig_n_stations = res['n_stations']
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
     random.seed(seed)
 
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
-    query_vals = [{"n_stations":orig_n_stations, "OS":order_strength, "q_time": time.time()-start}]
+    query_vals = [{"n_stations":orig_n_stations, "OS":order_strength, "q_time": time.time()-start, "edge":()}]
     for q in range(n_queries): 
         if n_stations == bin_limit:
             print(f"reached bpp lower bound terminating after {q} queries")
@@ -336,10 +339,10 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
 
            
         if selector_method == 'ml':
-            edge, _ = beam_search_ml( orig_salbp, G_max_close,G_min, ml_model , **mhkwargs)
+            edge, _ = beam_search_ml( orig_salbp, G_max_close,G_min, ml_model , **new_kwargs)
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method == 'beam_mh':
-            edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh,  **mhkwargs)
+            edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
         else:
             edges = get_possible_edges(G_max_red, G_min)
             random.shuffle(edges)
@@ -351,7 +354,7 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
         res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=q_check_tl, orig_bbr=orig_bbr)
         n_stations = res['n_stations']
         q_time = time.time()-q_start
-        query_vals.append({"n_stations":n_stations, "OS":order_strength, "q_time": q_time})
+        query_vals.append({"n_stations":n_stations, "OS":order_strength, "q_time": q_time, "edge":edge})
     return G_max_red, query_vals, bin_limit
 
 
@@ -369,12 +372,14 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_metho
     G_min = nx.DiGraph()
     G_min.add_nodes_from(albp_problem["task_times"].keys())
     r_time = time.time()
-    G_max_red_random, random_query_vals, random_bin_limit =  best_first_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, time_limit=time_limit,selector_method=selector_method,seed=seed, **mh_kwargs)
+    _, query_vals, bin_limit =  best_first_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, time_limit=time_limit,selector_method=selector_method,seed=seed, **mh_kwargs)
+    print(query_vals)
     r_time = time.time()-r_time
-    os = [d["OS"] for d in random_query_vals]
-    val = [d["n_stations"] for d in random_query_vals]
-    q_times = [d["q_time"] for d in random_query_vals]
-    return { 'time': r_time,  'OS':os,'query_values':val, 'q_time':q_times,  'bin_lb':random_bin_limit}
+    os = [d["OS"] for d in query_vals]
+    val = [d["n_stations"] for d in query_vals]
+    q_times = [d["q_time"] for d in query_vals]
+    edges = [d["edge"] for d in query_vals]
+    return { 'time': r_time,  'OS':os,'query_values':val, 'q_time':q_times,  'bin_lb':bin_limit, 'edges':edges}
 
 
 
@@ -395,11 +400,11 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         trial_seed = attempt_ind+base_seed
         #albp_problem = parse_alb("/Users/letshopethisworks2/Documents/phd_paper_material/DADA/test.alb")
         feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=trial_seed)
-
-        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method, "beam_width": beam_config['width'], "beam_depth":beam_config['depth'], "xi":xi}
+        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method, "beam_width": beam_config['width'], "beam_depth":beam_config['depth']}
         G_max_close = seqs_to_dag(feasible_sequences)
         if edge_prob_data:
-            edge_probs = edge_prob_generation(albp_problem, G_max_close, xi=edge_prob_data['xi'])
+            metadata = {**metadata, **edge_prob_data}
+            edge_probs = edge_prob_generation(albp_problem, G_max_close, xi=edge_prob_data['xi'], true_prob=edge_prob_data['true_prob'], false_prob=edge_prob_data['false_prob'],seed=trial_seed)
             nx.set_edge_attributes(G_max_close, edge_probs, name='prob')
 
         print("solving ",albp_problem['name'])
@@ -417,7 +422,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
             print("running hoffman")     
             # #hoffman
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_mhh_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
             res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
         if any(method in mh_methods for method in ["priority", "all", "fast"]):  
             print("running priority")

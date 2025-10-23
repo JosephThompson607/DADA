@@ -31,11 +31,11 @@ def rename_nodes_topological(G):
     return new_graph, old_to_new, new_to_old
 
 
-def get_possible_edges(G_max_red, G_min):
+def get_possible_edges(G_max_red, G_min, ban_list = []):
     G_min_close = nx.transitive_closure(G_min)
     candidates = []
     for u,v,data in  G_max_red.edges(data=True):
-        if not G_min_close.has_edge(u, v):
+        if not G_min_close.has_edge(u, v) and (u,v) not in ban_list:
             if data:
                 candidates.append((u, v, data['prob']))
             else:

@@ -576,7 +576,14 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         return None
     
 
-def salbp1_mhh_solve(alb_dict, **kwargs):
+def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
+                alpha_size = 0.05,
+                beta_iter = None,
+                beta_size = 0.005,
+                reverse=True,
+                **kwargs):
+    if not beta_iter:
+        beta_iter = int(len(alb_dict['task_times'])/2)
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -588,6 +595,11 @@ def salbp1_mhh_solve(alb_dict, **kwargs):
             N=N,
             task_times=t_times,
             raw_precedence=precs,
+            alpha_iter = alpha_iter,
+              alpha_size = alpha_size,
+                beta_iter = beta_iter,
+                beta_size = beta_size,
+                reverse=reverse,
 
         )
     result_dict = results.to_dict()

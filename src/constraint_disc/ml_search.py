@@ -19,14 +19,14 @@ def predictor(orig_salbp, G_max_red, ml_model, ml_config, n_random=0,**kwargs):
     y_prob = ml_model.predict_proba(X_all)[:, 1]
     edge_prob_df = pd.DataFrame({
         'edge': edge_names,
-        'predicted_probability': y_prob
+        'pred_val_prob': y_prob
     })
         # --- Add the existing 'prob' attribute from directed graph ---
     def get_edge_prob(edge):
         # edge is assumed to be a tuple (u, v)
         return G_max_red.edges[edge].get('prob', 1) if edge in G_max_red.edges else 1
 
-    edge_prob_df['graph_prob'] = edge_prob_df['edge'].apply(get_edge_prob)
+    edge_prob_df['precedent_prob'] = edge_prob_df['edge'].apply(get_edge_prob)
     return edge_prob_df
 
 
@@ -44,16 +44,16 @@ def select_best_edge(edge_prob_df, valid_edges):
         return None  # or raise an exception if that’s unexpected
 
     # Select edge with max probability
-    best_row = filtered.loc[filtered['predicted_probability'].idxmax()]
-    return best_row['edge'], best_row['predicted_probability']
+    best_row = filtered.loc[filtered['pred_val_prob'].idxmax()]
+    return best_row['edge'], best_row['pred_val_prob']
 
-def select_best_n_edges(edge_prob_df, valid_edges, top_n, prob_weights=None):
+def select_best_n_edges(edge_prob_df, valid_edges, top_n):
     """
     If given an edge probability feature, we multiply the ml value by the probability of the edge not existing. We then Filter edge_prob_df to only include edges in valid_edges,
     then return the edge with the highest predicted probability.
     """
-    if prob_weights:
-        edge_prob_df['predicted_probability'] =  edge_prob_df[prob_weights]* edge_prob_df['predicted_probability']
+    
+    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']
 
     # Filter DataFrame by valid edges
    
@@ -66,8 +66,8 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n, prob_weights=None):
     
     
     # Select edge with max probability
-    best_rows = filtered.nlargest(top_n, 'predicted_probability')
-    return list(zip(best_rows['edge'], best_rows['predicted_probability']))
+    best_rows = filtered.nlargest(top_n, 'reward')
+    return list(zip(best_rows['edge'], best_rows['reward'], best_rows['precedent_prob']))
 
 
 def best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,top_n=1, prob_weights=None, **kwargs):
