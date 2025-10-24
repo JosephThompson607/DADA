@@ -7,6 +7,7 @@ import matplotlib.colors as mcolors
 import pandas as pd
 import subprocess
 import sys
+import shutil
 import time
 import os
 import xgboost as xgb
@@ -17,6 +18,7 @@ from set_new_edges import *
 sys.path.append('src')
 from beam_search import beam_search_mh, beam_search_ml
 from metrics.graph_features import calculate_order_strength
+from datetime import date
 
 from metrics.node_and_edge_features import randomized_kahns_algorithm
 
@@ -180,49 +182,6 @@ def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
 
 
 
-
-def non_repeating_strat(G_max_close, G_min, G_true, n_queries ):
-    node_attrs = dict(G_true.nodes(data=True))
-    nx.set_node_attributes(G_max_close, node_attrs) 
-    G_max_red = nx.transitive_reduction(G_max_close)
-    nx.set_node_attributes(G_max_red, node_attrs) 
-    for q in range(n_queries):
-        edges = get_possible_edges(G_max_red, G_min)
-        edge =  random.choice(edges)
-        G_max_close, G_max_red, G_min,_ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
-    return G_max_red
-
-
-
-
-def non_repeating_strat_w_eval(G_max_close, G_min, orig_salbp, n_queries , ex_fp, q_check_tl = 3):
-    G_true = albp_to_nx(orig_salbp)
-    G_max_red = nx.transitive_reduction(G_max_close)
-    order_strength = calculate_order_strength(G_max_red)
-    test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-    res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=q_check_tl)
-    orig_n_stations = res['n_stations']
-    n_stations = orig_n_stations
-    bin_limit = res['bin_lb']
-    query_vals = [{"n_stations":orig_n_stations, "OS":order_strength}]
-    for q in range(n_queries):
-        if n_stations == bin_limit:
-            print(f"reached bpp lower bound terminating after {q} queries")
-            break
-        edges = get_possible_edges(G_max_red, G_min)
-
-        edge =  random.choice(edges)
-        G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
-        order_strength = calculate_order_strength(G_max_red)
-        test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-        res = salbp1_bbr_call(test_salbp,ex_fp, 1, time_limit=3, w_bin_pack=False)
-        n_stations = res['n_stations']
-        query_vals.append({"n_stations":n_stations, "OS":order_strength})
-
-    return G_max_red, query_vals,bin_limit
-
-
-
 def best_first_choice(edges, orig_salbp, G_max_red_orig, ex_fp , q_check_tl=3):
     G_max_red = G_max_red_orig.copy()
     best_edge = edges[0]
@@ -249,29 +208,7 @@ def best_first_choice(edges, orig_salbp, G_max_red_orig, ex_fp , q_check_tl=3):
     return best_edge, station_best
 
 
-  
-def greedy_choice(edges, orig_salbp, G_max_red_orig, ex_fp, q_check_tl=3 ):
-    G_max_red = G_max_red_orig.copy()
-    best_edge = edges[0]
-    remaining_edges =edges[1:]
-    G_max_red.clear_edges()
-    G_max_red.add_edges_from(remaining_edges)
-    new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-    res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=q_check_tl, w_bin_pack=False)
-    station_best = res['n_stations']
-    for i, edge in enumerate(edges[1:]):
-        if res['n_stations'] < station_best:
-            station_best = res['n_stations']
-            best_edge = edge
-            return best_edge, station_best     
-        # Create list without current item
-        remaining_edges = edges[:i] + edges[i+1:]
-        G_max_red.clear_edges()
-        G_max_red.add_edges_from(remaining_edges)
-        new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-        res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
 
-    return best_edge, station_best        
 
 
 def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
@@ -304,6 +241,12 @@ def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
 
 
 
+def make_random_weight_generator(seed=None, output_name="n_stations"):
+    rng = random.Random(seed)
+    def random_weight(*_, **__):
+        return {output_name: rng.random()}
+    return random_weight
+
 
 def os_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
     G = albp_to_nx(new_salbp)
@@ -311,7 +254,7 @@ def os_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
     return {output_name:os}
 
 
-def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='best_first',ml_model = None, seed=42,**mhkwargs):
+def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None, seed=42,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
     G_max_red = nx.transitive_reduction(G_max_close)
@@ -321,7 +264,7 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
     if "BBR-for-SALBP1/" in ex_fp:
         orig_bbr = True
     res = salbp1_bbr_call(test_salbp,ex_fp, 1, w_bin_pack=True, time_limit=q_check_tl, orig_bbr=orig_bbr)
-    new_kwargs = {**mhkwargs, 'ex_fp':ex_fp, 'orig_bbr':orig_bbr}
+    new_kwargs = {**mhkwargs, 'ex_fp':ex_fp, 'orig_bbr':orig_bbr, 'seed':seed}
     orig_n_stations = res['n_stations']
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
@@ -343,10 +286,6 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method == 'beam_mh':
             edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
-        else:
-            edges = get_possible_edges(G_max_red, G_min)
-            random.shuffle(edges)
-            edge, _= myopic_choice_mh(edges, orig_salbp, G_max_red, mh,**new_kwargs)
         
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red)
@@ -366,13 +305,13 @@ def get_feasible_seq(albp, n_seq, seed=42):
     return feasible_sequences
 
 
-def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_method, time_limit=1,seed=42, **mh_kwargs):
+def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh, selector_method, time_limit=1,seed=42, **mh_kwargs):
     G_max_close2 = G_max_close.copy()
           
     G_min = nx.DiGraph()
     G_min.add_nodes_from(albp_problem["task_times"].keys())
     r_time = time.time()
-    _, query_vals, bin_limit =  best_first_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, time_limit=time_limit,selector_method=selector_method,seed=seed, **mh_kwargs)
+    _, query_vals, bin_limit =  best_first_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, selector_method=selector_method, time_limit=time_limit,seed=seed, **mh_kwargs)
     print(query_vals)
     r_time = time.time()-r_time
     os = [d["OS"] for d in query_vals]
@@ -381,18 +320,58 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh,selector_metho
     edges = [d["edge"] for d in query_vals]
     return { 'time': r_time,  'OS':os,'query_values':val, 'q_time':q_times,  'bin_lb':bin_limit, 'edges':edges}
 
+def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
+    """
+    Load experiment configuration, associated ML feature and model configs,
+    and back up the main config file with today's date appended.
 
+    Args:
+        xp_config_fp (str or Path): Path to the main experiment config YAML.
+        backup_folder (str or Path): Folder where backups will be stored.
 
-def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, selector_method, ml_features_fp,beam_config, base_seed=None,  q_check_tl=3, n_random=10, edge_prob_data={}):
-    name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
-    
+    Returns:
+        tuple: (xp_config, ml_config, ml_model)
+    """
+    xp_config_fp = Path(xp_config_fp)
 
-    print("using features specified in ", ml_features_fp)
+    # --- Load experiment config ---
+    with open(xp_config_fp, 'r') as file:
+        xp_config = yaml.safe_load(file)
+    print(f"Loaded experiment config from {xp_config_fp}")
+    print(xp_config)
+
+    # --- Load ML feature config ---
+    ml_features_fp = Path(xp_config['ml_param_fp'])
+    print(f"Using ML features and model specified in {ml_features_fp}")
+
     with open(ml_features_fp, 'r') as file:
         ml_config = yaml.safe_load(file)
-        print(ml_config)
-        with open(ml_config['ml_model_fp'], 'rb') as f:
-            ml_model = pickle.load(f)
+    print(f"Loaded ML config from {ml_features_fp}")
+    print(ml_config)
+
+    # --- Load ML model ---
+    ml_model_fp = Path(ml_config['ml_model_fp'])
+    with open(ml_model_fp, 'rb') as f:
+        ml_model = pickle.load(f)
+    print(f"Loaded ML model from {ml_model_fp}")
+
+    # --- Backup main config ---
+    backup_folder = Path(backup_folder)
+    backup_folder.mkdir(parents=True, exist_ok=True)
+
+    today = date.today().isoformat()  # e.g. "2025-10-24"
+    backup_name = f"{xp_config_fp.stem}_{today}{xp_config_fp.suffix}"
+    backup_path = backup_folder / backup_name
+
+    shutil.copy2(xp_config_fp, backup_path)
+    print(f"Backed up {xp_config_fp} → {backup_path}")
+
+    return xp_config, ml_config, ml_model
+
+def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}):
+    name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
+    
+    xp_config, ml_config, ml_model = load_and_backup_configs(xp_config_fp, backup_folder=save_folder)
         
     res_list = []
     for attempt_ind in range(n_tries):
@@ -400,7 +379,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         trial_seed = attempt_ind+base_seed
         #albp_problem = parse_alb("/Users/letshopethisworks2/Documents/phd_paper_material/DADA/test.alb")
         feasible_sequences = get_feasible_seq(albp_problem,n_start_sequences, seed=trial_seed)
-        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences, "dp_search_strategy":selector_method, "beam_width": beam_config['width'], "beam_depth":beam_config['depth']}
+        metadata = {'dataset':albp_problem['name'], 'name': name, 'n_queries':n_queries, 'attempt':attempt_ind, 'n_start_sequences':n_start_sequences,  "beam_width": beam_config['width'], "beam_depth":beam_config['depth']}
         G_max_close = seqs_to_dag(feasible_sequences)
         if edge_prob_data:
             metadata = {**metadata, **edge_prob_data}
@@ -409,41 +388,42 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
 
         print("solving ",albp_problem['name'])
         if any(method in mh_methods for method in ["random", "all", "fast"]):
-            print("running random")
-            G_max_close2 = G_max_close.copy()
-            G_min = nx.DiGraph()
-            G_min.add_nodes_from(albp_problem["task_times"].keys())
-            r_time = time.time()
-            G_max_red_random, random_query_vals, random_bin_limit =  non_repeating_strat_w_eval(G_max_close2, G_min,albp_problem,n_queries, ex_fp, q_check_tl=q_check_tl )
-            r_time = time.time()-r_time
-            os = [d["OS"] for d in random_query_vals]
-            val = [d["n_stations"] for d in random_query_vals]
-            res_list.append({'method':'random', 'time': r_time, 'OS':os,'query_values':val,  'bin_lb':random_bin_limit, **metadata})
+            print("running random")     
+            random_weight = make_random_weight_generator(seed=trial_seed)
+            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
+            res_list.append({**metadata, **rand_res, 'method':'random'})
+
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
             print("running hoffman")     
             # #hoffman
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['hoff'])
             res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
         if any(method in mh_methods for method in ["priority", "all", "fast"]):  
             print("running priority")
             #Prioriy
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method=selector_method,seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, n_random=n_random)
+            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['priority'])
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
         if any(method in mh_methods for method in ["ml", "all", "fast"]):  
             print("running ml")
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config, n_random=n_random )
+            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
-
+        if any(method in mh_methods for method in ["probability", "all", "fast"]):  
+                print("running probability")
+                #Prioriy
+                priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, os_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+                res_list.append({**metadata, **priority_res, 'method':'probability'})
+        # print("calculating ml results now")
+        
         #vdls
         if any(method in mh_methods for method in ["vdls", "all", ]):  
             print("running vdls")
-            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method=selector_method ,seed=trial_seed,time_limit=1, q_check_tl=q_check_tl)
+            vdls_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_vdls_dict, selector_method='beam_mh',seed=trial_seed,time_limit=1, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **vdls_res,'method':'vdls'})
         #bbr
         if any(method in mh_methods for method in ["bbr", "all", ]):  
             print("running bbr")
-            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method=selector_method,seed=trial_seed,time_limit=1, w_bin_pack=False, q_check_tl=q_check_tl)
+            bbr_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_bbr_call, selector_method='beam_mh',seed=trial_seed,time_limit=1, w_bin_pack=False, q_check_tl=q_check_tl)
             res_list.append({ **metadata, **bbr_res,'method':'bbr'})
     
     
@@ -482,11 +462,11 @@ def main():
         help="Output folder to store results"
     )
     parser.add_argument(
-        "--ml_config_fp",
+        "--xp_config_fp",
         type=str,
         required=False,
-        default="data/ml_models/hyper_parameter/features/edge_full.yaml",
-        help="config file for ml search(default: %(default)s)"
+        default="data/mh_config/hoff_simple.yaml",
+        help="config file for xp (default: %(default)s)"
     )
     parser.add_argument(
         "--pool_size",
@@ -505,27 +485,6 @@ def main():
         type=int,
         default=10,
         help="Number of queries to remove a precedence constraint (default: %(default)s)"
-    )
-    # parser.add_argument(
-    #     "--ml_model_fp",
-    #     type=str,
-    #     required=False,
-    #     default = "data/ml_models/trained_models/edge_full_boost_edge_2025-10-16.pkl",
-    #     help="What ml weights to use (assuming use of Boost method). (default:%(default)s)"
-    # )
-    parser.add_argument(
-        "--ml_features_fp",
-        type=str,
-        required=False,
-        default = "data/ml_models/hyper_parameter/features/edge_full.yaml",
-        help="what features to use. Must correspond to the correct trained ml model. (default:%(default)s)"
-    )
-    parser.add_argument(
-        "--dp_search",
-        type=str,
-        required=False,
-        default = "greedy",
-        help="When searching dp tree, what strategy to use. There is beam, greedy,  (default:%(default)s)"
     )
     parser.add_argument(
         "--depth",
@@ -561,7 +520,7 @@ def main():
     parser.add_argument(
         "--true_prob",
         type=float,
-        default=0.9,
+        default=0.1,
         help="Edge probability generation. Initial probability given to edges that are part of the real graph that they are not part of the graph(default: %(default)s)"
     )
     parser.add_argument(
@@ -595,21 +554,14 @@ def main():
         default=5,
         help="How long to spend on BBR evaluation of previous constraint elimination (default: %(default)s)"
     )
-    parser.add_argument(
-        "--n_random",
-        type=int,
-        default=10,
-        help="How many random solutions to generate(default: %(default)s)"
-    )
-    
+
     
     
 
 
     args = parser.parse_args()
     alb_dicts = open_salbp_pickle(args.fp)[args.start:args.end]
-
-    out_folder = Path(args.out_folder)
+    out_folder = Path(args.out_folder + date.today().isoformat())
     out_folder.mkdir(parents=True, exist_ok=True)
     #albp_problem = alb_dicts[0]
     beam_config = {"width":args.width, "depth":args.depth}
@@ -627,15 +579,13 @@ def main():
                                             args.methods,
                                             args.n_xps, 
                                             args.ex_fp, 
-                                            args.out_folder, 
+                                            out_folder, 
                                             args.n_queries, 
                                             args.n_seq, 
-                                            args.dp_search, 
-                                            args.ml_features_fp, 
+                                            args.xp_config_fp,
                                             beam_config, 
                                             args.base_seed,  
                                             args.q_check_tl,
-                                            args.n_random,
                                             edge_prob_data) for alb in alb_dicts])
         #results = pool.map(test_func, range(5))
 

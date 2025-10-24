@@ -492,7 +492,6 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
 
         #proceeds to precedence constraint removal, if bin_lb != no stations
         for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
-            print("removing edge: ", relation)
             SALBP_dict = deepcopy(SALBP_dict_orig)
             SALBP_dict = precedence_removal(SALBP_dict, j)
             if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
@@ -582,6 +581,7 @@ def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
                 beta_size = 0.005,
                 reverse=True,
                 **kwargs):
+    print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
     if not beta_iter:
         beta_iter = int(len(alb_dict['task_times'])/2)
     C = alb_dict['cycle_time']
@@ -641,6 +641,7 @@ def salbp1_prioirity_dict(alb_dict, n_random=100,**mh_kwargs):
     return res_list
 
 def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100, **kwargs):
+    print("using n random", n_random)
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
