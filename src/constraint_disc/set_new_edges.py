@@ -54,3 +54,11 @@ def set_new_edges(G_max_red, orig_salbp):
     new_salbp['task_times'] = {k: new_task_times[k] for k in sorted(new_task_times, key=lambda x: int(x))}
     return new_salbp, new_to_old
 
+def get_false_edges(orig_salb, G_max_edges):
+    true_edges = set([(e[0], e[1]) for e in orig_salb['precedence_relations']])
+    G_max_edges = set([(e[0], e[1]) for e in G_max_edges])
+    false_edges = G_max_edges - true_edges
+    return false_edges, true_edges
+
+
+

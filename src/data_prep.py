@@ -35,7 +35,7 @@ def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None)
     return graph_data
 
 
-def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, n_random=100, feature_types={"all"}):
+def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, n_random=100,n_edge_random=0, feature_types={"all"}):
     start=time.time()
     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
     graph_metrics = get_graph_metrics(alb_instance)
@@ -47,7 +47,7 @@ def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, 
             graph_data = {**graph_data, **combined_metrics}
         graph_time = time.time()-start
         graph_data = {**graph_data, **time_metrics, **graph_metrics, 'global_feature_time': graph_time}
-        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, feature_types=feature_types)
+        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, feature_types=feature_types, n_random_solves=n_edge_random)
     elif salbp_type == "salbp_2": #TODO check if this works
         if cap_constraint:
             alb_instance['n_stations'] = cap_constraint

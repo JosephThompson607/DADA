@@ -1,15 +1,12 @@
-import re
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import pandas as pd
-import subprocess
 import sys
-import shutil
+
 import time
-import os
 import xgboost as xgb
 import copy
 import yaml
@@ -23,7 +20,7 @@ from datetime import date
 from metrics.node_and_edge_features import randomized_kahns_algorithm
 
 from alb_instance_compressor import *
-from SALBP_solve import salbp1_bbr_call, salbp1_prioirity_solve, salbp1_vdls_dict, salbp1_hoff_solve
+from SALBP_solve import salbp1_bbr_call, salbp1_prioirity_solve, salbp1_vdls_dict, salbp1_hoff_solve, load_and_backup_configs
 build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
 sys.path.insert(0, build_dir)
 build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
@@ -93,11 +90,7 @@ def plot_salbp_graph(G):
     nx.draw(G,pos, with_labels = True)
     plt.show()
 
-def get_false_edges(orig_salb, G_max_edges):
-    true_edges = set([(e[0], e[1]) for e in orig_salb['precedence_relations']])
-    G_max_edges = set([(e[0], e[1]) for e in G_max_edges])
-    false_edges = G_max_edges - true_edges
-    return false_edges, true_edges
+
 
 def give_probabilities(false_edges, true_edges, true_prob=0.1, false_prob=0.9, xi=0.2, seed=None, precision=2):
     if seed is not None:
@@ -182,60 +175,36 @@ def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
 
 
 
-def best_first_choice(edges, orig_salbp, G_max_red_orig, ex_fp , q_check_tl=3):
-    G_max_red = G_max_red_orig.copy()
-    best_edge = edges[0]
-    remaining_edges =edges[1:]
-    G_max_red.clear_edges()
-    G_max_red.add_edges_from(remaining_edges)
-    new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-    res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=q_check_tl)
-   
-    station_best = res['n_stations']
-    for i, edge in enumerate(edges[1:]):
-        if res['n_stations'] < station_best:
-            station_best = res['n_stations']
-            best_edge = edge
-            if res['n_stations'] == res['bin_lb']:
-                break
-        # Create list without current item
-        remaining_edges = edges[:i] + edges[i+1:]
-        G_max_red.clear_edges()
-        G_max_red.add_edges_from(remaining_edges)
-        new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-        res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=q_check_tl)
-
-    return best_edge, station_best
 
 
 
 
 
-def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
-    G_max_red = G_max_red_orig.copy()
-    best_edge = edges[0]
-    remaining_edges =edges[1:]
-    G_max_red.clear_edges()
-    G_max_red.add_edges_from(remaining_edges)
-    new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-    #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
-    res = mh(new_salbp, **mhkwargs)
-    station_best = res['n_stations']
-    best_edge = edges[0]
+# def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
+#     G_max_red = G_max_red_orig.copy()
+#     best_edge = edges[0]
+#     remaining_edges =edges[1:]
+#     G_max_red.clear_edges()
+#     G_max_red.add_edges_from(remaining_edges)
+#     new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
+#     #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
+#     res = mh(new_salbp, **mhkwargs)
+#     station_best = res['n_stations']
+#     best_edge = edges[0]
 
-    for i, edge in enumerate(edges[1:]):
-        # Create list without current item
-        remaining_edges = edges[:i] + edges[i+1:]
-        G_max_red.clear_edges()
-        G_max_red.add_edges_from(remaining_edges)
-        new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-        #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
-        res = mh(new_salbp, **mhkwargs)
-        if res['n_stations'] < station_best:
-            station_best = res['n_stations']
-            best_edge = edge
-    print("selecting", best_edge)
-    return best_edge, station_best      
+#     for i, edge in enumerate(edges[1:]):
+#         # Create list without current item
+#         remaining_edges = edges[:i] + edges[i+1:]
+#         G_max_red.clear_edges()
+#         G_max_red.add_edges_from(remaining_edges)
+#         new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
+#         #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
+#         res = mh(new_salbp, **mhkwargs)
+#         if res['n_stations'] < station_best:
+#             station_best = res['n_stations']
+#             best_edge = edge
+#     print("selecting", best_edge)
+#     return best_edge, station_best      
 
 
 
@@ -247,11 +216,17 @@ def make_random_weight_generator(seed=None, output_name="n_stations"):
         return {output_name: rng.random()}
     return random_weight
 
+def constant_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
+    return {output_name:1}
 
 def os_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
     G = albp_to_nx(new_salbp)
     os = calculate_order_strength(G)
     return {output_name:os}
+
+def random_valid(G_max_red, G_min,  rng):
+    edges = get_possible_edges(G_max_red, G_min)
+    return rng.choice(edges)
 
 
 def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None, seed=42,**mhkwargs):
@@ -269,7 +244,8 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
     random.seed(seed)
-
+    if selector_method =='random':
+        rng = random.Random(seed)
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
     query_vals = [{"n_stations":orig_n_stations, "OS":order_strength, "q_time": time.time()-start, "edge":()}]
     for q in range(n_queries): 
@@ -286,6 +262,8 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method == 'beam_mh':
             edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
+        elif selector_method =='random':
+            edge = random_valid( G_max_red,G_min,rng)
         
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red)
@@ -306,13 +284,13 @@ def get_feasible_seq(albp, n_seq, seed=42):
 
 
 def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh, selector_method, time_limit=1,seed=42, **mh_kwargs):
+    '''Runs a single xp and returns the results'''
     G_max_close2 = G_max_close.copy()
           
     G_min = nx.DiGraph()
     G_min.add_nodes_from(albp_problem["task_times"].keys())
     r_time = time.time()
     _, query_vals, bin_limit =  best_first_reduction(G_max_close2, G_min, albp_problem, n_queries, ex_fp, mh, selector_method=selector_method, time_limit=time_limit,seed=seed, **mh_kwargs)
-    print(query_vals)
     r_time = time.time()-r_time
     os = [d["OS"] for d in query_vals]
     val = [d["n_stations"] for d in query_vals]
@@ -320,53 +298,7 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh, selector_meth
     edges = [d["edge"] for d in query_vals]
     return { 'time': r_time,  'OS':os,'query_values':val, 'q_time':q_times,  'bin_lb':bin_limit, 'edges':edges}
 
-def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
-    """
-    Load experiment configuration, associated ML feature and model configs,
-    and back up the main config file with today's date appended.
 
-    Args:
-        xp_config_fp (str or Path): Path to the main experiment config YAML.
-        backup_folder (str or Path): Folder where backups will be stored.
-
-    Returns:
-        tuple: (xp_config, ml_config, ml_model)
-    """
-    xp_config_fp = Path(xp_config_fp)
-
-    # --- Load experiment config ---
-    with open(xp_config_fp, 'r') as file:
-        xp_config = yaml.safe_load(file)
-    print(f"Loaded experiment config from {xp_config_fp}")
-    print(xp_config)
-
-    # --- Load ML feature config ---
-    ml_features_fp = Path(xp_config['ml_param_fp'])
-    print(f"Using ML features and model specified in {ml_features_fp}")
-
-    with open(ml_features_fp, 'r') as file:
-        ml_config = yaml.safe_load(file)
-    print(f"Loaded ML config from {ml_features_fp}")
-    print(ml_config)
-
-    # --- Load ML model ---
-    ml_model_fp = Path(ml_config['ml_model_fp'])
-    with open(ml_model_fp, 'rb') as f:
-        ml_model = pickle.load(f)
-    print(f"Loaded ML model from {ml_model_fp}")
-
-    # --- Backup main config ---
-    backup_folder = Path(backup_folder)
-    backup_folder.mkdir(parents=True, exist_ok=True)
-
-    today = date.today().isoformat()  # e.g. "2025-10-24"
-    backup_name = f"{xp_config_fp.stem}_{today}{xp_config_fp.suffix}"
-    backup_path = backup_folder / backup_name
-
-    shutil.copy2(xp_config_fp, backup_path)
-    print(f"Backed up {xp_config_fp} → {backup_path}")
-
-    return xp_config, ml_config, ml_model
 
 def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
@@ -390,7 +322,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         if any(method in mh_methods for method in ["random", "all", "fast"]):
             print("running random")     
             random_weight = make_random_weight_generator(seed=trial_seed)
-            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
+            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='random',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'random'})
 
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
@@ -405,13 +337,12 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
         if any(method in mh_methods for method in ["ml", "all", "fast"]):  
-            print("running ml")
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
         if any(method in mh_methods for method in ["probability", "all", "fast"]):  
                 print("running probability")
                 #Prioriy
-                priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, os_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+                priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, constant_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
                 res_list.append({**metadata, **priority_res, 'method':'probability'})
         # print("calculating ml results now")
         
@@ -465,7 +396,7 @@ def main():
         "--xp_config_fp",
         type=str,
         required=False,
-        default="data/mh_config/hoff_simple.yaml",
+        default="data/xp_config/hoff_simple.yaml",
         help="config file for xp (default: %(default)s)"
     )
     parser.add_argument(
@@ -574,7 +505,6 @@ def main():
     #constraint_elim(alb_dicts[1], 2, args.ex_fp, args.out_folder, args.n_queries,args.n_seq, 'best_first', boost_edge,base_seed=args.base_seed, fast_only=fast_only )
     #Parallelized run
     with multiprocessing.Pool(args.pool_size) as pool:
-        print("starting pool")
         _ = pool.starmap(constraint_elim, [(alb,
                                             args.methods,
                                             args.n_xps, 

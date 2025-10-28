@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pydot
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import yaml
 import argparse
 import re
 import pandas as pd
@@ -28,8 +29,8 @@ import pandas as pd
 from copy import deepcopy
 import ILS_ALBP as ils 
 import time
-from functools import partial
-
+from datetime import date
+import shutil
 def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = True,orig_bbr=True, **kwargs):
     start = time.time()
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
@@ -581,7 +582,7 @@ def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
                 beta_size = 0.005,
                 reverse=True,
                 **kwargs):
-    print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
+    #print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
     if not beta_iter:
         beta_iter = int(len(alb_dict['task_times'])/2)
     C = alb_dict['cycle_time']
@@ -641,7 +642,6 @@ def salbp1_prioirity_dict(alb_dict, n_random=100,**mh_kwargs):
     return res_list
 
 def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100, **kwargs):
-    print("using n random", n_random)
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -661,11 +661,19 @@ def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100, **kwargs):
     return best
 
 
-def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
+def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config, **kwargs):
+    xp_config, ml_config, ml_model = load_and_backup_configs(mh_config, backup_folder=out_fp)
     if mh_func == "salbp1_vdls_dict":
         mh_func= salbp1_vdls_dict
+        mh_kwargs = xp_config['vdls']
     elif mh_func == "salbp1_priority_dict":
         mh_func = salbp1_prioirity_solve
+        mh_kwargs = xp_config['priority']
+
+    elif mh_func == "salbp1_hoff":
+        mh_func = salbp1_hoff_solve
+        mh_kwargs = xp_config['hoff']
+
         
     else:
         print(f"Error: given metaheuristic {mh_func} not supported")
@@ -683,7 +691,8 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
 
     orig_solution = mh_func(
         alb_dict,
-        time_limit
+        time_limit,
+        **mh_kwargs
     )
         
   
@@ -712,7 +721,8 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
         solution =    mh_func(
         SALBP_dict,
         time_limit, 
-        initial_solution=orig_solution['task_assignment']
+        initial_solution=orig_solution['task_assignment'],
+        **mh_kwargs
     )
         
         result = {
@@ -729,15 +739,15 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, **kwargs):
 
     return results
 
-def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit):
+def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit, mh_config):
     if not os.path.exists(out_fp):
          os.makedirs(out_fp)
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit) for alb in alb_files])
+        results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit, mh_config) for alb in alb_files])
     #save_backup(out_fp + backup_name, results)
     return results
 
-def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, stop , mh_func, time_limit):
+def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, stop , mh_func, time_limit, mh_config):
     '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
     or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
     
@@ -764,12 +774,12 @@ def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, st
             else:
                 print( name, "is already in results, skipping")
 
-        results = generate_results_from_dict_list_2(filtered_files, out_fp, pool_size,mh_func, time_limit)
+        results = generate_results_from_dict_list_2(filtered_files, out_fp, pool_size,mh_func, time_limit, mh_config)
     else:
         alb_files = open_salbp_pickle(fp)
         if start is not None and stop is not None:
             alb_files = alb_files[start:stop]
-        results =  generate_results_from_dict_list_2(alb_files, out_fp,pool_size, mh_func, time_limit)
+        results =  generate_results_from_dict_list_2(alb_files, out_fp,pool_size, mh_func, time_limit, mh_config)
     return results
 
 def generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch, time_limit):
@@ -815,7 +825,53 @@ def generate_results_from_pickle(fp  ,out_fp, res_df ,  ex_fp ,  backup_name , p
     return results
 
 
+def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
+    """
+    Load experiment configuration, associated ML feature and model configs,
+    and back up the main config file with today's date appended.
 
+    Args:
+        xp_config_fp (str or Path): Path to the main experiment config YAML.
+        backup_folder (str or Path): Folder where backups will be stored.
+
+    Returns:
+        tuple: (xp_config, ml_config, ml_model)
+    """
+    xp_config_fp = Path(xp_config_fp)
+
+    # --- Load experiment config ---
+    with open(xp_config_fp, 'r') as file:
+        xp_config = yaml.safe_load(file)
+    print(f"Loaded experiment config from {xp_config_fp}")
+    print(xp_config)
+
+    # --- Load ML feature config ---
+    ml_features_fp = Path(xp_config['ml_param_fp'])
+    print(f"Using ML features and model specified in {ml_features_fp}")
+
+    with open(ml_features_fp, 'r') as file:
+        ml_config = yaml.safe_load(file)
+    print(f"Loaded ML config from {ml_features_fp}")
+    print(ml_config)
+
+    # --- Load ML model ---
+    ml_model_fp = Path(ml_config['ml_model_fp'])
+    with open(ml_model_fp, 'rb') as f:
+        ml_model = pickle.load(f)
+    print(f"Loaded ML model from {ml_model_fp}")
+
+    # --- Backup main config ---
+    backup_folder = Path(backup_folder)
+    backup_folder.mkdir(parents=True, exist_ok=True)
+
+    today = date.today().isoformat()  # e.g. "2025-10-24"
+    backup_name = f"{xp_config_fp.stem}_{today}{xp_config_fp.suffix}"
+    backup_path = backup_folder / backup_name
+
+    shutil.copy2(xp_config_fp, backup_path)
+    print(f"Backed up {xp_config_fp} → {backup_path}")
+
+    return xp_config, ml_config, ml_model
 
 # def generate_results_from_pickle(fp  ,out_fp,  ex_fp = "../BBR-for-SALBP1/SALB/SALB/salb",  backup_name = f"SALBP_edge_solutions.csv", pool_size = 4, start=None, stop=None):
 #     results = []
@@ -839,6 +895,7 @@ def main():
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
     parser.add_argument('--backup_name', type=str, required=False, default="results", help='name for intermediate saves')
+    parser.add_argument('--mh_config_fp', type=str, required=False, default="results", help='filepath for mh config file')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
@@ -865,9 +922,12 @@ def main():
     else:
         if args.heuristic:
             if args.heuristic=='vdls':
-                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit)
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit, mh_config = args.mh_config_fp)
             elif args.heuristic=='priority':
-                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit)
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+            elif args.heuristic=='hoff':
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_hoff" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+
         else:
             print("using bbr")
             results = generate_results_from_pickle(args.filepath, args.final_results_fp,res_df = args.res_fp, ex_fp=args.SALBP_solver_fp, backup_name=args.backup_name, pool_size=args.n_processes, start=args.start, stop=args.end, branch = args.solver_config, time_limit = args.time_limit)

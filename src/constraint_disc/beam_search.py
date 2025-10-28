@@ -135,7 +135,7 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 else:
                     edge_prob = 1
                 prob = old_sol.state_probability * edge_prob #Overall likelihood is the probability of reaching previous states times the probability of the current
-                reward = old_sol.accumulated_reward+ max( random.random()*1e-5, prob*(old_sol.value - res['n_stations']))
+                reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - res['n_stations']))
                 #print(f"acc reward: {old_sol.accumulated_reward}, probability: {probability}, old_sol.value {old_sol.value}, current val {res["n_stations"]}")
                 #For noisy heuristics, new value could be higher than old value, even if problem is a relaxation
                 best_value = min(res['n_stations'], old_sol.value) 
@@ -154,9 +154,10 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
     return edges[0], obj
 
 #best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,**new_kwargs):
-def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, beam_config = {"width":1, "depth":1} , discount_factor = 1,**mhkwargs):
+def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},beam_config = {"width":1, "depth":1} , discount_factor = 1,**mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
+    ml_n_random = 0
     G_max_close= G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
@@ -170,7 +171,7 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, beam_config = 
             to_remove = old_sol.edges.copy()
             G_max_red = remove_edges(G_max_close, to_remove)   
             edges = get_possible_edges(G_max_red, G_min)
-            edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, top_n=width, **mhkwargs)
+            edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, ml_config)
             for edge, val_prob, edge_prob in edge_res:
                         
                 new_removed = to_remove+ [(edge[0], edge[1])]
