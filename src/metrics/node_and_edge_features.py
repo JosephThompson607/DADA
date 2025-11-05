@@ -57,20 +57,44 @@ def get_all_predecessors(G):
 
 
 def get_edge_neighbor_max_min_avg_std(G, key="task_time"):
-    '''For each edge, gets the maximum and minimum weight of its neighbors'''
-    edge_neighbor_max_min = {}
+    """
+    For each edge, gets statistics (max, min, avg, std) of the weights of:
+    - predecessors of the first node (pred_weights)
+    - successors of the second node (succ_weights)
+    - combined neighbors (pred + succ)
+    """
+    edge_neighbor_stats = {}
+    
     for edge in G.edges():
-        #gets the weights of the predecessors of the first node in the edge
-        pred_weights = [G.nodes[pred][key] for pred in G.predecessors(edge[0])] 
-        #gets the weights of the successors of the second node in the edge
-        succ_weights = [G.nodes[succ][key] for succ in G.successors(edge[1])] 
-        #adds the max and min of the weights to the edge_neighbor_max_min dictionary
+        # Get predecessor and successor weights
+        pred_weights = [G.nodes[pred][key] for pred in G.predecessors(edge[0])]
+        succ_weights = [G.nodes[succ][key] for succ in G.successors(edge[1])]
         weights = pred_weights + succ_weights
-        if weights:
-            edge_neighbor_max_min[edge] = {"max": max(weights), "min": min(weights), "avg": sum(weights)/len(weights), "std": np.std(weights), "edge_0_weight": G.nodes[edge[0]][key], "edge_1_weight": G.nodes[edge[1]][key]}
-        else:
-            edge_neighbor_max_min[edge] = {"max": 0, "min": 0, "avg": 0, "std": 0, "edge_0_weight": G.nodes[edge[0]][key], "edge_1_weight": G.nodes[edge[1]][key]}
-    return edge_neighbor_max_min
+
+        # Helper to compute stats safely
+        def stats(lst):
+            if lst:
+                return {
+                    "max": max(lst),
+                    "min": min(lst),
+                    "avg": sum(lst)/len(lst),
+                    "std": float(np.std(lst)),
+                    "sum": sum(lst)
+                }
+            else:
+                return {"max": 0, "min": 0, "avg": 0, "std": 0, "sum":0}
+
+        # Build full dictionary for this edge
+        edge_neighbor_stats[edge] = {
+            "pred": stats(pred_weights),
+            "succ": stats(succ_weights),
+            "combined": stats(weights),
+            "edge_0_weight": G.nodes[edge[0]][key],
+            "edge_1_weight": G.nodes[edge[1]][key]
+        }
+
+    return edge_neighbor_stats
+
 
 def longest_chain_containing_node(G, node):
     if node not in G:
@@ -216,6 +240,25 @@ def get_edge_data(instance_name, alb):
                             **child_walk_data})
     return edge_list
 
+def get_neighborhood_edge_stats(neighborhood_info):
+    child_weight = neighborhood_info['edge_1_weight']
+    parent_weight = neighborhood_info['edge_0_weight']
+    neighborhood_dict = {
+                                'neighborhood_min': neighborhood_info['combined']['min'], 
+                            'neighborhood_max': neighborhood_info['combined']['max'], 
+                            'neighborhood_avg': neighborhood_info['combined']['avg'], 
+                            'neighborhood_std': neighborhood_info['combined']['std'], 
+                            'child_min': neighborhood_info['succ']['min'], 
+                            'child_max': neighborhood_info['succ']['max'], 
+                            'child_avg': neighborhood_info['succ']['avg'], 
+                            'child_std': neighborhood_info['succ']['std'], 
+                            'parent_min': neighborhood_info['pred']['min'], 
+                            'parent_max': neighborhood_info['pred']['max'], 
+                            'parent_avg': neighborhood_info['pred']['avg'], 
+                            'parent_std': neighborhood_info['pred']['std'], 
+                            'parent_weight': parent_weight,
+                            'child_weight': child_weight}
+    return neighborhood_dict
 
 
 def get_load_data(load_stats, node, name=''):
@@ -247,10 +290,7 @@ def get_combined_edge_and_graph_data(alb, graph_data,  n_random_solves=0, featur
     if not feature_types.isdisjoint({'all', 'grapheval'}):
         load_stats = graph_data.pop('load_stats')
     for idx, edge in enumerate(alb['precedence_relations']):
-
-        neighborhood_info = edge_weights[tuple(edge)]
-        
-        
+        neighborhood_data = get_neighborhood_edge_stats(edge_weights[tuple(edge)])
         chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
         chain_avg = np.mean(chain_info['weights'])
         chain_min = np.min(chain_info['weights'])
@@ -258,33 +298,21 @@ def get_combined_edge_and_graph_data(alb, graph_data,  n_random_solves=0, featur
         chain_std = np.std(chain_info['weights'])
         parent_in_degree = G.in_degree(edge[0])
         parent_out_degree = G.out_degree(edge[0])
-
-        parent_weight = neighborhood_info['edge_0_weight']
         parent_stage = len(longest_chains_to[edge[0]]['nodes'])
         parent_pos_weight = positional_weights[edge[0]]
-
-        
-        child_weight = neighborhood_info['edge_1_weight']
         child_stage = len(longest_chains_to[edge[1]]['nodes'])
         child_in_degree = G.in_degree(edge[1])
         child_out_degree = G.out_degree(edge[1])
-      
         child_pos_weight = positional_weights[edge[1]]
         end_time = time.time() - start_time
-        res_dict = { **graph_data,
+        res_dict = { **graph_data, **neighborhood_data,
                             'edge': edge, 
                             'idx': idx, 
-                            'parent_weight':parent_weight,
                             'parent_pos_weight': parent_pos_weight,
                             'parent_stage': parent_stage,
-                            'child_weight':child_weight, 
                             'child_pos_weight': child_pos_weight, 
                             'child_stage': child_stage,
                             'stage_difference': child_stage-parent_stage,
-                            'neighborhood_min': neighborhood_info['min'], 
-                            'neighborhood_max': neighborhood_info['max'], 
-                            'neighborhood_avg': neighborhood_info['avg'], 
-                            'neighborhood_std': neighborhood_info['std'], 
                             'parent_in_degree': parent_in_degree, 
                             'parent_out_degree': parent_out_degree, 
                             'child_in_degree': child_in_degree, 
