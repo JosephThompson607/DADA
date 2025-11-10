@@ -264,7 +264,7 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
             edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
         elif selector_method == 'beam_prob':
             edge, prob = beam_search_mh( orig_salbp, G_max_close,G_min, mh, mode='beam_prob', **new_kwargs)
-            print (f"selecting: {edge} with prob {prob}")
+            #print (f"selecting: {edge} with prob {prob}")
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng)
         

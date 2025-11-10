@@ -147,7 +147,6 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 best_value = min(res['n_stations'], old_sol.value) 
                 sol = Solution(reward,prob,best_value, new_removed)
                 elites.add(sol)
-            print("Elites are:", elites.get_elites())
         if c_d > 1:
             if elites.same_first_edge():
                 
