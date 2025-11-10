@@ -95,17 +95,20 @@ def remove_edges(G_max_close_orig, removed_edges):
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     return G_max_red
 
-def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"width":1, "depth":1} , init_sol = None, **mhkwargs):
+def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
     G_max_close= G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     #Initial solution
-    if not init_sol:
-        res = mh(new_salbp, **mhkwargs)
-    else:
-        res = init_sol
+    if mode == 'beam_mh':
+        if not init_sol:
+            res = mh(new_salbp, **mhkwargs)
+        else:
+            res = init_sol
+    elif mode == 'beam_prob':
+        res = {'n_stations':0}
     init_sol = Solution(0,1,res['n_stations'], [])
     history = set()
     queue = [init_sol]  # Queue of Solution(obj_val, removed_edges) 
@@ -135,12 +138,16 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 else:
                     edge_prob = 1
                 prob = old_sol.state_probability * edge_prob #Overall likelihood is the probability of reaching previous states times the probability of the current
-                reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - res['n_stations']))
+                if mode == 'beam_mh':
+                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - res['n_stations']))
+                elif mode == 'beam_prob':
+                    reward = old_sol.accumulated_reward + prob * 1.0
                 #print(f"acc reward: {old_sol.accumulated_reward}, probability: {probability}, old_sol.value {old_sol.value}, current val {res["n_stations"]}")
                 #For noisy heuristics, new value could be higher than old value, even if problem is a relaxation
                 best_value = min(res['n_stations'], old_sol.value) 
                 sol = Solution(reward,prob,best_value, new_removed)
                 elites.add(sol)
+            print("Elites are:", elites.get_elites())
         if c_d > 1:
             if elites.same_first_edge():
                 

@@ -576,6 +576,29 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         return None
     
 
+def salbp1_mhh_solve(alb_dict,  
+                **kwargs):
+    #print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.mhh_solve_salbp1(
+            C=C,
+            N=N,
+            task_times=t_times,
+            raw_precedence=precs,
+
+        )
+    result_dict = results.to_dict()
+    end = time.time()- start
+
+    return {
+            **result_dict,  "elapsed_time":end}
+    
+
 def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
                 alpha_size = 0.05,
                 beta_iter = None,

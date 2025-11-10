@@ -356,8 +356,7 @@ def get_combined_edge_and_graph_data(alb, graph_data,  n_random_solves=0, featur
 def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
     ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''
     topological_sorts = []
-    if seed:
-        random.seed(seed)
+    rng = random.Random(seed) if seed is not None else random.Random()
     for _ in range(n_runs):
         top_sort = []
         weights = []
@@ -371,7 +370,7 @@ def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
             if not zero_in_degree_nodes:
                 raise ValueError('Graph has a cycle')
             #selects a random node with in degree 0
-            node = random.choice(zero_in_degree_nodes)
+            node = rng.choice(zero_in_degree_nodes)
             node_weight = G_copy.nodes[node][weight_key]
             if start_weight - node_weight < 0:
                 if not run_increasing:

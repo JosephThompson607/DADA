@@ -93,16 +93,16 @@ def plot_salbp_graph(G):
 
 
 def give_probabilities(false_edges, true_edges, true_prob=0.1, false_prob=0.9, xi=0.2, seed=None, precision=2):
-    if seed is not None:
-        random.seed(seed)
-    
+    rng = random.Random(seed) if seed is not None else random.Random()
+    if seed:
+        print("Seed is ", seed)
     true_probs = {edge: true_prob for edge in true_edges}
     false_probs = {edge: false_prob for edge in false_edges}
     probs = {**true_probs, **false_probs}
 
     n_perturb = int(len(probs) * xi)
-    edges_to_perturb = random.sample(list(probs.keys()), n_perturb)
-
+    edges_to_perturb = rng.sample(sorted(probs.keys()), n_perturb)
+    print("edges to perturb, ", edges_to_perturb)
     for edge in edges_to_perturb:
         probs[edge] = 1 - probs[edge]
     probs = {edge: round(prob, precision) for edge, prob in probs.items()}
@@ -262,6 +262,9 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method == 'beam_mh':
             edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
+        elif selector_method == 'beam_prob':
+            edge, prob = beam_search_mh( orig_salbp, G_max_close,G_min, mh, mode='beam_prob', **new_kwargs)
+            print (f"selecting: {edge} with prob {prob}")
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng)
         
