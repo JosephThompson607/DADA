@@ -40,15 +40,14 @@ def rename_nodes_topological(G):
     return new_graph, old_to_new, new_to_old
 
 
-def get_possible_edges(G_max_red, G_min, ban_list = []):
+def get_possible_edges(G_max_red, G_min, remaining_budget=1e6,ban_list = []):
     G_min_close = nx.transitive_closure(G_min)
     candidates = []
     for u,v,data in  G_max_red.edges(data=True):
-        if not G_min_close.has_edge(u, v) and (u,v) not in ban_list:
-            if data:
-                candidates.append((u, v, data['prob']))
-            else:
-                candidates.append((u, v))
+        time = data['t_cost']
+        if not G_min_close.has_edge(u, v) and (u,v) not in ban_list and remaining_budget-time>=0 :
+            candidates.append((u, v, data['prob'], time))
+
     return candidates
 
 def set_new_edges(G_max_red, orig_salbp):
@@ -88,7 +87,7 @@ def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
     if G_max_red.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
         G_max_close.remove_edge(edge[0], edge[1])
         successful_removal = True
-        G_max_red= nx.transitive_reduction(G_max_close)
+        G_max_red= sorted_copy(nx.transitive_reduction(G_max_close))
         #copying over edge data
         G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     elif G_max_red.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
@@ -104,10 +103,7 @@ def uncertain_query_prec_set(G_max_close, G_max_red, G_min, edge, rng):
     """This function only removes an edge if it is part of the transitive reduction of 
         Ē but not in the real precedence constraints, and also if it succeds a random trial based on its current probability"""
     
-    if len(edge)>2:
-        prob = edge[2]
-    else:
-        prob = 1
+    prob = edge[2]
     
     successful_removal = False
     if G_max_red.has_edge(edge[0], edge[1]) and rng.random()< prob:

@@ -676,7 +676,6 @@ def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **k
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
     if seed:
-        print("using seed", seed)
         results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed )
     else:
         results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random)

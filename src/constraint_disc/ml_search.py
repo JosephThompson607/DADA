@@ -24,49 +24,60 @@ def predictor(orig_salbp, G_max_red, ml_model, ml_config,**_):
         'pred_val_prob': y_prob
     })
         # --- Add the existing 'prob' attribute from directed graph ---
-    def get_edge_prob(edge):
-        # edge is assumed to be a tuple (u, v)
-        return G_max_red.edges[edge].get('prob', 1) if edge in G_max_red.edges else 1
-
-    edge_prob_df['precedent_prob'] = edge_prob_df['edge'].apply(get_edge_prob)
+    def get_edge_attributes(edge):
+    # edge is assumed to be a tuple (u, v)
+        if edge in G_max_red.edges:
+            prob = G_max_red.edges[edge].get('prob', 1)
+            t_cost = G_max_red.edges[edge].get('t_cost', 1)  # or whatever default you want
+            return prob, t_cost
+        else:
+            return 1, 1  # default values
+    edge_prob_df['precedent_prob', 't_cost'] = edge_prob_df['edge'].apply(get_edge_attributes)
     return edge_prob_df
 
 
-def select_best_edge(edge_prob_df, valid_edges):
-    """
-    Filter edge_prob_df to only include edges in valid_edges,
-    then return the edge with the highest predicted probability.
-    """
-    # Filter DataFrame by valid edges
+# def select_best_edge(edge_prob_df, valid_edges):
+#     """
+#     Filter edge_prob_df to only include edges in valid_edges,
+#     then return the edge with the highest predicted probability.
+#     """
+#     # Filter DataFrame by valid edges
+#     valid_edges = set([(str(e[0]),str(e[1])) for e in valid_edges])
+#     edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
+#     filtered = edge_prob_df[edge_prob_df['valid']==True]
+#     if filtered.empty:
+#         print("Error: No edges in the probability dataframe ")
+#         return None  # or raise an exception if that’s unexpected
+
+#     # Select edge with max probability
+#     best_row = filtered.loc[filtered['pred_val_prob'].idxmax()]
+#     return best_row['edge'], best_row['pred_val_prob']
+
+def filter_for_valid_edges(valid_edges, edge_prob_df):
     valid_edges = set([(str(e[0]),str(e[1])) for e in valid_edges])
     edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
     filtered = edge_prob_df[edge_prob_df['valid']==True]
-    if filtered.empty:
-        print("Error: No edges in the probability dataframe ")
-        return None  # or raise an exception if that’s unexpected
+    return filtered
 
-    # Select edge with max probability
-    best_row = filtered.loc[filtered['pred_val_prob'].idxmax()]
-    return best_row['edge'], best_row['pred_val_prob']
 
 def select_best_n_edges(edge_prob_df, valid_edges, top_n):
     """
     If given an edge probability feature, we multiply the ml value by the probability of the edge not existing. We then Filter edge_prob_df to only include edges in valid_edges,
     then return the edge with the highest predicted probability.
+
+    Returns list of (edge, reward, and probability of edge existing) notice that the reward is prob of edge impacting solution * prob of edge existing
     """
     
-    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']
+    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']/edge_prob_df['t_cost']
 
     # Filter DataFrame by valid edges
-   
-    valid_edges = set([(str(e[0]),str(e[1])) for e in valid_edges])
-    edge_prob_df['valid'] = edge_prob_df['edge'].apply(lambda x: (str(x[0]), str(x[1])) in valid_edges)
-    filtered = edge_prob_df[edge_prob_df['valid']==True]
+    filtered = filter_for_valid_edges(valid_edges, edge_prob_df)
+
+    
     if filtered.empty:
         print("Error: No edges in the probability dataframe ")
         return None  # or raise an exception if that’s unexpected
-    
-    
+
     # Select edge with max probability
     best_rows = filtered.nlargest(top_n, 'reward')
     return list(zip(best_rows['edge'], best_rows['reward'], best_rows['precedent_prob']))

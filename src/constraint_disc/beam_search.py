@@ -9,7 +9,8 @@ import random
 class Solution:
     accumulated_reward: float  # Discounted reward
     state_probability: float
-    value: float  # True value
+    value: float  # Objective problem when 'edges' are removed
+    first_query_cost: int #How much time the first query takes
     edges: list = field(compare=False, default_factory=list)
 
 
@@ -95,10 +96,9 @@ def remove_edges(G_max_close_orig, removed_edges):
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     return G_max_red
 
-def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, rng = None, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
+def beam_search_mh( orig_salbp, G_max_close,G_min, mh, rng = None, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
-    G_max_close= G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     #Initial solution
@@ -111,7 +111,7 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, rng = None, beam_con
         res = {'n_stations':0}
         if not rng:
             rng = random.Random()
-    init_sol = Solution(0,1,res['n_stations'], [])
+    init_sol = Solution(0,1,res['n_stations'],None, [] )
     history = set()
     queue = [init_sol]  # Queue of Solution(obj_val, removed_edges) 
     for c_d in range(depth):
@@ -120,35 +120,39 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, rng = None, beam_con
         while len(queue) > 0:
             old_sol= queue.pop(0)
             removed_edges = old_sol.edges
-            edges = get_possible_edges(G_max_red, G_min, removed_edges)
+            first_query_cost = old_sol.first_query_cost
+            edges = get_possible_edges(G_max_red, G_min, ban_list=removed_edges)
             for i, edge in enumerate(edges):
                         #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
-                
+                edge_prob = edge[2]
+                edge_time_cost = edge[3]
+                #Edge management
                 new_removed = removed_edges+ [(edge[0], edge[1])]
                 edge_set = frozenset(new_removed)
-                
                 if edge_set in history:
                     continue
                 # Store the current removal sequence
                 history.add(edge_set)
-                # Create list without current item
-                G_max_red = remove_edges(G_max_close, new_removed)
-                new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-                res = mh(new_salbp, **mhkwargs)
-                if len(edge) ==3:
-                    edge_prob = edge[2]
-                else:
-                    edge_prob = 1
+  
                 prob = old_sol.state_probability * edge_prob #Overall likelihood is the probability of reaching previous states times the probability of the current
                 if mode == 'beam_mh':
-                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - res['n_stations']))
+                    # remove edge and re-solve
+                    G_max_red = remove_edges(G_max_close, new_removed)
+                    G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
+                    new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
+                    res = mh(new_salbp, **mhkwargs)
+                    current_val = res['n_stations']
+                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val))/edge_time_cost
                 elif mode == 'beam_prob':
                     #Value is 1 for removing the edge times the likelihood of removing the edge, plus some noise to break ties
-                    reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()
+                    reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()/edge_time_cost
+                    current_val = old_sol.val
                 #print(f"acc reward: {old_sol.accumulated_reward}, probability: {probability}, old_sol.value {old_sol.value}, current val {res["n_stations"]}")
                 #For noisy heuristics, new value could be higher than old value, even if problem is a relaxation
-                best_value = min(res['n_stations'], old_sol.value) 
-                sol = Solution(reward,prob,best_value, new_removed)
+                best_value = min(current_val, old_sol.value) 
+                if not first_query_cost:
+                    first_query_cost = edge_time_cost
+                sol = Solution(reward,prob,best_value, edge_time_cost,new_removed)
                 elites.add(sol)
         if c_d > 1:
             if elites.same_first_edge():
@@ -160,18 +164,18 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, rng = None, beam_con
     sol = elites.best()
     obj = sol.accumulated_reward
     edges = sol.edges
-    return edges[0], obj
+    t_cost = sol.first_query_cost
+    return edges[0], obj, t_cost
 
 #best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,**new_kwargs):
 def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},beam_config = {"width":1, "depth":1} , discount_factor = 1,**mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
-    ml_n_random = 0
     G_max_close= G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     history = set() #Hash table of previous results
-    queue = [Solution(0,1,None, [])]  # Queue of Solution(reward,val, removed_edges) 
+    queue = [Solution(0,1,None, [], None)]  # Queue of Solution(reward,probablity, val, removed_edges, first query cost) 
     for c_d in range(depth):
         elites = EliteSet(width)
 
@@ -181,8 +185,8 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},b
             G_max_red = remove_edges(G_max_close, to_remove)   
             edges = get_possible_edges(G_max_red, G_min)
             edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, ml_config)
-            for edge, val_prob, edge_prob in edge_res:
-                        
+            state_prob = old_sol.state_probability 
+            for edge, contribution,_ in edge_res:
                 new_removed = to_remove+ [(edge[0], edge[1])]
                 #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
                 edge_set = frozenset(new_removed)
@@ -191,9 +195,8 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},b
                 # Store the current removal sequence
                 history.add(edge_set)
                 #We do not have real objective value, here we are maximizing the sum of the probabilities
-                #Subtracting probability so it becomes a minimization problem so heap datastructure works
-                state_prob = old_sol.state_probability * edge_prob
-                reward = old_sol.accumulated_reward + discount_factor*val_prob* state_prob
+                #Contribution is (prob_edge_exist*prob_edge_contributes)/query_time
+                reward = old_sol.accumulated_reward + discount_factor*contribution* state_prob
                 sol = Solution(reward,state_prob,None, new_removed)
                 elites.add(sol)
         #sorting elites so we consider the sequence of edges with the higher accumulated reward first. 
@@ -209,4 +212,5 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},b
     sol = elites.best()
     obj = sol.accumulated_reward
     edges = sol.edges
-    return edges[0], obj
+    t_cost = sol.first_query_cost
+    return edges[0], obj, t_cost
