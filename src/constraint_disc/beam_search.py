@@ -95,7 +95,7 @@ def remove_edges(G_max_close_orig, removed_edges):
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     return G_max_red
 
-def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
+def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, rng = None, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
     G_max_close= G_max_close_orig.copy()
@@ -109,6 +109,8 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
             res = init_sol
     elif mode == 'beam_prob':
         res = {'n_stations':0}
+        if not rng:
+            rng = random.Random()
     init_sol = Solution(0,1,res['n_stations'], [])
     history = set()
     queue = [init_sol]  # Queue of Solution(obj_val, removed_edges) 
@@ -141,7 +143,8 @@ def beam_search_mh( orig_salbp, G_max_close_orig,G_min, mh, beam_config = {"widt
                 if mode == 'beam_mh':
                     reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - res['n_stations']))
                 elif mode == 'beam_prob':
-                    reward = old_sol.accumulated_reward + prob * 1.0
+                    #Value is 1 for removing the edge times the likelihood of removing the edge, plus some noise to break ties
+                    reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()
                 #print(f"acc reward: {old_sol.accumulated_reward}, probability: {probability}, old_sol.value {old_sol.value}, current val {res["n_stations"]}")
                 #For noisy heuristics, new value could be higher than old value, even if problem is a relaxation
                 best_value = min(res['n_stations'], old_sol.value) 

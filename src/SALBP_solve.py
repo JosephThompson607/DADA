@@ -648,14 +648,18 @@ def salbp1_vdls_dict(alb_dict,time_limit=180, initial_solution = [], **mh_kwargs
             **result_dict, "time_limit":time_limit, "elapsed_time":end}
 
        
-def salbp1_prioirity_dict(alb_dict, n_random=100,**mh_kwargs):
+def salbp1_prioirity_dict(alb_dict, n_random=100,seed=None,**mh_kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
     N = len(t_times)
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
-    results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
+    if seed:
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed )
+
+    else:
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
 
     end = time.time()- start
     res_list = []
@@ -664,19 +668,25 @@ def salbp1_prioirity_dict(alb_dict, n_random=100,**mh_kwargs):
         res_list.append(result_dict)
     return res_list
 
-def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100, **kwargs):
+def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
     N = len(t_times)
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
-    results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
+    if seed:
+        print("using seed", seed)
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed )
+    else:
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random)
+
 
 
     best = results[0]
     for result in results:
         if result.n_stations < best.n_stations:
+
             best=result
     
     end = time.time()- start

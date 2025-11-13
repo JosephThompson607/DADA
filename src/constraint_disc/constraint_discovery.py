@@ -16,7 +16,7 @@ sys.path.append('src')
 from beam_search import beam_search_mh, beam_search_ml
 from metrics.graph_features import calculate_order_strength
 from datetime import date
-
+from lstd import lstd_search_mh, train_lstd
 from metrics.node_and_edge_features import randomized_kahns_algorithm
 
 from alb_instance_compressor import *
@@ -143,68 +143,8 @@ def seqs_to_dag(orig_sequences):
 
     return G
 
-def naive_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
-    if G_max_close.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
-        G_max_close.remove_edge(edge[0], edge[1])
-        G_max_red= nx.transitive_reduction(G_max_close)
-    elif G_max_close.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
-        G_min.add_edge(edge[0], edge[1])
-    else:
-        print(f"edge {edge} not in transitive closure")
-        
-    return G_max_close, G_max_red, G_min
-
-def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
-    """This function only removes an edge if it is part of the transitive reduction of 
-        Ē but not in the real precedence constraints"""
-    successful_removal = False
-    if G_max_red.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
-        G_max_close.remove_edge(edge[0], edge[1])
-        successful_removal = True
-        G_max_red= nx.transitive_reduction(G_max_close)
-        #copying over edge data
-        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
-    elif G_max_red.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
-        G_min.add_edge(edge[0], edge[1])
-    else:
-        print(f"edge {edge} not in transitive reduction")
-        print(list(G_max_red.edges()))
-    return G_max_close, G_max_red, G_min, successful_removal
 
 
-
-
-
-
-
-
-
-
-# def myopic_choice_mh(edges, orig_salbp, G_max_red_orig, mh,  **mhkwargs):
-#     G_max_red = G_max_red_orig.copy()
-#     best_edge = edges[0]
-#     remaining_edges =edges[1:]
-#     G_max_red.clear_edges()
-#     G_max_red.add_edges_from(remaining_edges)
-#     new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-#     #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
-#     res = mh(new_salbp, **mhkwargs)
-#     station_best = res['n_stations']
-#     best_edge = edges[0]
-
-#     for i, edge in enumerate(edges[1:]):
-#         # Create list without current item
-#         remaining_edges = edges[:i] + edges[i+1:]
-#         G_max_red.clear_edges()
-#         G_max_red.add_edges_from(remaining_edges)
-#         new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
-#         #res = salbp1_bbr_call(new_salbp,ex_fp, 1, time_limit=1, w_bin_pack=False)
-#         res = mh(new_salbp, **mhkwargs)
-#         if res['n_stations'] < station_best:
-#             station_best = res['n_stations']
-#             best_edge = edge
-#     print("selecting", best_edge)
-#     return best_edge, station_best      
 
 
 
@@ -233,6 +173,7 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
     G_max_red = nx.transitive_reduction(G_max_close)
+
     order_strength = calculate_order_strength(G_max_red)
     test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
     orig_bbr = False
@@ -243,28 +184,26 @@ def best_first_reduction(G_max_close, G_min,  orig_salbp, n_queries , ex_fp, mh,
     orig_n_stations = res['n_stations']
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
-    random.seed(seed)
-    if selector_method =='random':
-        rng = random.Random(seed)
+    rng = random.Random(seed)    #rng for random edge selection
+    if selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
+        theta = train_lstd(orig_salbp, G_max_close,G_min, n_queries, mh, mode=selector_method,seed = seed,prev_val=n_stations,**mhkwargs)
+
+
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
     query_vals = [{"n_stations":orig_n_stations, "OS":order_strength, "q_time": time.time()-start, "edge":()}]
     for q in range(n_queries): 
         if n_stations == bin_limit:
             print(f"reached bpp lower bound terminating after {q} queries")
             break
-        
-        
         q_start = time.time()
-
-           
         if selector_method == 'ml':
             edge, _ = beam_search_ml( orig_salbp, G_max_close,G_min, ml_model , **new_kwargs)
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
-        elif selector_method == 'beam_mh':
-            edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res, **new_kwargs)
-        elif selector_method == 'beam_prob':
-            edge, prob = beam_search_mh( orig_salbp, G_max_close,G_min, mh, mode='beam_prob', **new_kwargs)
-            #print (f"selecting: {edge} with prob {prob}")
+        elif selector_method in ('beam_mh', 'beam_prob'):
+            edge, _ = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
+        elif selector_method in ('lstd_prob', 'lstd_mh'):
+            remaining_budget= n_queries -  q
+            edge, _ = lstd_search_mh(orig_salbp, G_max_close, G_min, mh,remaining_budget, theta,prev_val=n_stations, mode=selector_method, **new_kwargs )
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng)
         

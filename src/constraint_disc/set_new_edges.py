@@ -1,5 +1,14 @@
 import networkx as nx
 import copy
+
+def sorted_copy(G):
+    """Because networkx uses dictionaries, order can get messed up of edges in transitive reduction, this enforces order"""
+    H = G.__class__()
+    H.add_nodes_from(sorted(G.nodes(data=True)))
+    H.add_edges_from(sorted(G.edges(data=True)))
+    return H
+
+
 def rename_nodes_topological(G):
     """
     Rename nodes to respect topological ordering
@@ -12,7 +21,7 @@ def rename_nodes_topological(G):
     """
     # Get topological ordering
     try:
-        topo_order = list(nx.topological_sort(G))
+        topo_order = list(nx.topological_sort(sorted_copy(G)))
     except nx.NetworkXError:
         raise ValueError("Graph contains cycles - not a DAG")
     
@@ -59,6 +68,62 @@ def get_false_edges(orig_salb, G_max_edges):
     G_max_edges = set([(e[0], e[1]) for e in G_max_edges])
     false_edges = G_max_edges - true_edges
     return false_edges, true_edges
+
+
+def naive_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
+    if G_max_close.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
+        G_max_close.remove_edge(edge[0], edge[1])
+        G_max_red= nx.transitive_reduction(G_max_close)
+    elif G_max_close.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
+        G_min.add_edge(edge[0], edge[1])
+    else:
+        print(f"edge {edge} not in transitive closure")
+        
+    return G_max_close, G_max_red, G_min
+
+def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
+    """This function only removes an edge if it is part of the transitive reduction of 
+        Ē but not in the real precedence constraints"""
+    successful_removal = False
+    if G_max_red.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
+        G_max_close.remove_edge(edge[0], edge[1])
+        successful_removal = True
+        G_max_red= nx.transitive_reduction(G_max_close)
+        #copying over edge data
+        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
+    elif G_max_red.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
+        G_min.add_edge(edge[0], edge[1])
+    else:
+        print(f"edge {edge} not in transitive reduction")
+        print(list(G_max_red.edges()))
+    return G_max_close, G_max_red, G_min, successful_removal
+
+
+
+def uncertain_query_prec_set(G_max_close, G_max_red, G_min, edge, rng):
+    """This function only removes an edge if it is part of the transitive reduction of 
+        Ē but not in the real precedence constraints, and also if it succeds a random trial based on its current probability"""
+    
+    if len(edge)>2:
+        prob = edge[2]
+    else:
+        prob = 1
+    
+    successful_removal = False
+    if G_max_red.has_edge(edge[0], edge[1]) and rng.random()< prob:
+        G_max_close.remove_edge(edge[0], edge[1])
+        successful_removal = True
+        G_max_red= nx.transitive_reduction(G_max_close)
+        #copying over edge data
+        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
+    elif G_max_red.has_edge(edge[0], edge[1]):
+        G_min.add_edge(edge[0], edge[1])
+    else:
+        print(f"edge {edge} not in transitive reduction")
+        print(list(G_max_red.edges()))
+    return G_max_close, G_max_red, G_min, successful_removal
+
+
 
 
 
