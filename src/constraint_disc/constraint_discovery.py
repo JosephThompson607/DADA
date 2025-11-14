@@ -16,7 +16,7 @@ sys.path.append('src')
 from beam_search import beam_search_mh, beam_search_ml
 from metrics.graph_features import calculate_order_strength
 from datetime import date
-from lstd import lstd_search_mh, train_lstd
+from lstd import lstd_search, train_lstd
 from metrics.node_and_edge_features import randomized_kahns_algorithm
 
 from alb_instance_compressor import *
@@ -169,7 +169,7 @@ def random_valid(G_max_red, G_min,  rng, remaining_budget):
     return rng.choice(edges)
 
 
-def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None, seed=42,**mhkwargs):
+def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None,ml_config=None, seed=42,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
     G_max_close = G_max_close_orig.copy()
@@ -187,7 +187,10 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
     bin_limit = res['bin_lb']
     rng = random.Random(seed)    #rng for random edge selection
     if selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
-        theta = train_lstd(orig_salbp, G_max_close,G_min, n_queries, mh, mode=selector_method,seed = seed,prev_val=n_stations,**mhkwargs)
+        print("HERE ARE THE MH KWargs", mhkwargs)
+        print('ml model', ml_model)
+        print('ml config ', ml_config)
+        theta = train_lstd(orig_salbp, G_max_close,G_min, n_queries, mh, mode=selector_method,seed = seed,prev_val=n_stations,ml_model =ml_model, ml_config=ml_config, **mhkwargs)
 
 
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
@@ -200,13 +203,13 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             print(f"reached bpp lower bound terminating after {q} queries")
             break
         q_start = time.time()
-        if selector_method == 'ml':
-            edge, _ , t_cost= beam_search_ml( orig_salbp, G_max_close,G_min, ml_model ,remaining_budget, **new_kwargs)
+        if selector_method == 'beam_ml':
+            edge, _ , t_cost= beam_search_ml( orig_salbp, G_max_close,G_min, ml_model ,ml_config,remaining_budget, **new_kwargs)
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method in ('beam_mh', 'beam_prob'):            
-            edge, _, t_cost = beam_search_mh( orig_salbp, G_max_close,G_min, mh, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
-        elif selector_method in ('lstd_prob', 'lstd_mh'):
-            edge, _, t_cost = lstd_search_mh(orig_salbp, G_max_close, G_min, mh,remaining_budget, theta,prev_val=n_stations, mode=selector_method, **new_kwargs )
+            edge, _, t_cost = beam_search_mh( orig_salbp, G_max_close,G_min, mh,remaining_budget, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
+        elif selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
+            edge, _, t_cost = lstd_search(orig_salbp, G_max_close, G_min, mh,remaining_budget, theta,prev_val=n_stations, mode=selector_method, ml_config=ml_config, ml_model=ml_model,**new_kwargs )
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng, remaining_budget)
             t_cost = edge[3]
@@ -285,7 +288,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
         if any(method in mh_methods for method in ["ml", "all", "fast"]):  
-            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
+            priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="beam_ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
         if any(method in mh_methods for method in ["probability", "all", "fast"]):  
                 print("running probability")

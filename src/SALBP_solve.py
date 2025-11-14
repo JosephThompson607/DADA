@@ -891,17 +891,17 @@ def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
     with open(ml_model_fp, 'rb') as f:
         ml_model = pickle.load(f)
     print(f"Loaded ML model from {ml_model_fp}")
+    if backup_folder:
+        # --- Backup main config ---
+        backup_folder = Path(backup_folder)
+        backup_folder.mkdir(parents=True, exist_ok=True)
 
-    # --- Backup main config ---
-    backup_folder = Path(backup_folder)
-    backup_folder.mkdir(parents=True, exist_ok=True)
+        today = date.today().isoformat()  # e.g. "2025-10-24"
+        backup_name = f"{xp_config_fp.stem}_{today}{xp_config_fp.suffix}"
+        backup_path = backup_folder / backup_name
 
-    today = date.today().isoformat()  # e.g. "2025-10-24"
-    backup_name = f"{xp_config_fp.stem}_{today}{xp_config_fp.suffix}"
-    backup_path = backup_folder / backup_name
-
-    shutil.copy2(xp_config_fp, backup_path)
-    print(f"Backed up {xp_config_fp} → {backup_path}")
+        shutil.copy2(xp_config_fp, backup_path)
+        print(f"Backed up {xp_config_fp} → {backup_path}")
 
     return xp_config, ml_config, ml_model
 

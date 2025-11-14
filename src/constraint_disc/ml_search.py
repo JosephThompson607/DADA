@@ -32,7 +32,7 @@ def predictor(orig_salbp, G_max_red, ml_model, ml_config,**_):
             return prob, t_cost
         else:
             return 1, 1  # default values
-    edge_prob_df['precedent_prob', 't_cost'] = edge_prob_df['edge'].apply(get_edge_attributes)
+    edge_prob_df[['precedent_prob', 't_cost']] = edge_prob_df['edge'].apply(get_edge_attributes).apply(pd.Series)
     return edge_prob_df
 
 
@@ -75,12 +75,11 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
 
     
     if filtered.empty:
-        print("Error: No edges in the probability dataframe ")
         return None  # or raise an exception if that’s unexpected
 
     # Select edge with max probability
     best_rows = filtered.nlargest(top_n, 'reward')
-    return list(zip(best_rows['edge'], best_rows['reward'], best_rows['precedent_prob']))
+    return list(zip(best_rows['edge'], best_rows['pred_val_prob'],best_rows['reward'], best_rows['precedent_prob'], best_rows['t_cost']))
 
 
 def best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,ml_config, top_n=1, **_):
