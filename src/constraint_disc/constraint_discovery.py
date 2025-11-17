@@ -275,6 +275,11 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             random_weight = make_random_weight_generator(seed=trial_seed)
             rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='random',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'random'})
+        if any(method in mh_methods for method in ["lstd_prob", "all", "fast","probability"]):   
+            print("running lstd probability")     
+            #LSTD probability from Overcoming poor data quality
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_prob',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
+            res_list.append({**metadata, **mhh_res, 'method':'lstd_prob'})
 
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
             print("running hoffman")     
@@ -290,7 +295,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
         if any(method in mh_methods for method in ["ml", "all", "fast"]):  
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="beam_ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
-        if any(method in mh_methods for method in ["probability", "all", "fast"]):  
+        if any(method in mh_methods for method in ["probability",'beam_prob', "all", "fast"]):  
                 print("running probability")
                 #Prioriy
                 priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, constant_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)

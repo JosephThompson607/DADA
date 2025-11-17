@@ -145,10 +145,10 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
                     new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
                     res = mh(new_salbp, **mhkwargs)
                     current_val = res['n_stations']
-                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val))/edge_time_cost
+                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val))
                 elif mode == 'beam_prob':
                     #Value is 1 for removing the edge times the likelihood of removing the edge, plus some noise to break ties
-                    reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()/edge_time_cost
+                    reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()
                     current_val = old_sol.val
                 #print(f"acc reward: {old_sol.accumulated_reward}, probability: {probability}, old_sol.value {old_sol.value}, current val {res["n_stations"]}")
                 #For noisy heuristics, new value could be higher than old value, even if problem is a relaxation

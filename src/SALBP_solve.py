@@ -383,72 +383,6 @@ def run_alb_ils_dict(alb_dict, max_iterations):
 
 
 
-
-# def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
-#     SALBP_dict_orig = alb_dict
-#     bin_dict = deepcopy(SALBP_dict_orig)
-#     instance_fp = SALBP_dict_orig['name']
-#     results = []
-#     # Extract instance name from file path
-#     instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
-
-#     if not os.path.exists(out_fp):
-#          os.makedirs(out_fp)
-#     print("running: ", instance_name, " saving to output ", out_fp, " time limit: ", time_limit)
-#     # Use a unique temporary ALB file per process
-   
-#     orig_prec = len(SALBP_dict_orig["precedence_relations"])
-#     #original problem
-#     SALBP_dict = deepcopy(SALBP_dict_orig)
-#     res = salbp1_bbr_call(SALBP_dict, ex_fp, branch, time_limit)
-#     bin_lb = sum
-#     salbp_sol = res['value']
-#     optimal = res['verified_optimality']
-#     cpu = res['cpu']
-#     if not bin_lb:
-#         print("ERROR, no bin_lb", )
-#     orig_prob = {
-#         "instance": instance_name,
-#         "precedence_relation": "None",
-#         "nodes": "SALBP_original",
-#         "no_stations": salbp_sol,
-#         "original_n_precedence_constraints": orig_prec,
-#         "optimal": optimal,
-#         "cpu": cpu,
-#         "lb_1": bin_lb
-#     }
-#     results.append(orig_prob)
-#     save_backup(out_fp+instance_name + ".csv", orig_prob)
-#     #Tracking if instance autocompleted because bp=salbp and setting defaults
-#     cpu = -1 
-#     no_stations = salbp_sol
-
-#     #proceeds to precedence constraint removal, if bin_lb != no stations
-#     for j, relation in enumerate(SALBP_dict_orig["precedence_relations"]):
-#         print("removing edge: ", relation)
-#         SALBP_dict = deepcopy(SALBP_dict_orig)
-#         SALBP_dict = precedence_removal(SALBP_dict, j)
-#         if bin_lb != salbp_sol: #If bin_lb==salbp_sol, then we don't need to do any precedence removal
-#             res = salbp1_bbr_call(SALBP_dict, ex_fp, branch, time_limit)
-#             bin_lb = res['bin_lb']
-#             salbp_sol = res['value']
-#             optimal = res['verified_optimality']
-#             cpu = res['cpu']
-
-#         result = {
-#             "instance": instance_name,
-#             "precedence_relation": j,
-#             "nodes": relation,
-#             "no_stations": no_stations,
-#             "original_n_precedence_constraints": orig_prec,
-#             "optimal": optimal,
-#             "cpu": cpu,
-#             "lb_1": bin_lb
-#         }
-#         save_backup(out_fp+instance_name + ".csv", result)
-#         results.append(result)
-
-#     return results
 def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
     SALBP_dict_orig = alb_dict
     bin_dict = deepcopy(SALBP_dict_orig)
@@ -877,6 +811,7 @@ def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
     print(f"Loaded experiment config from {xp_config_fp}")
     print(xp_config)
 
+
     # --- Load ML feature config ---
     ml_features_fp = Path(xp_config['ml_param_fp'])
     print(f"Using ML features and model specified in {ml_features_fp}")
@@ -885,7 +820,9 @@ def load_and_backup_configs(xp_config_fp, backup_folder="backups"):
         ml_config = yaml.safe_load(file)
     print(f"Loaded ML config from {ml_features_fp}")
     print(ml_config)
-
+    if 'n_random' not in ml_config.keys():
+        print("No number of random priority solutions for ml set, setting n random to zero")
+        ml_config['n_random'] = 0
     # --- Load ML model ---
     ml_model_fp = Path(ml_config['ml_model_fp'])
     with open(ml_model_fp, 'rb') as f:

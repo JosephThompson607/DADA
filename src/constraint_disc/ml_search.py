@@ -68,7 +68,7 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
     Returns list of (edge, reward, and probability of edge existing) notice that the reward is prob of edge impacting solution * prob of edge existing
     """
     
-    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']/edge_prob_df['t_cost']
+    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']
 
     # Filter DataFrame by valid edges
     filtered = filter_for_valid_edges(valid_edges, edge_prob_df)
