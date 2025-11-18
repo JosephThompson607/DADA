@@ -85,11 +85,9 @@ def focused_query_prec_set(G_max_close, G_max_red, G_min, G_true, edge):
         Ē but not in the real precedence constraints"""
     successful_removal = False
     if G_max_red.has_edge(edge[0], edge[1]) and not G_true.has_edge(edge[0], edge[1]):
-        G_max_close.remove_edge(edge[0], edge[1])
         successful_removal = True
-        G_max_red= sorted_copy(nx.transitive_reduction(G_max_close))
         #copying over edge data
-        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
+        G_max_close, G_max_red, _ =remove_and_expand(G_max_close, G_max_red, [edge])
     elif G_max_red.has_edge(edge[0], edge[1]) and G_true.has_edge(edge[0], edge[1]):
         G_min.add_edge(edge[0], edge[1])
     else:
@@ -107,11 +105,8 @@ def uncertain_query_prec_set(G_max_close, G_max_red, G_min, edge, rng):
     
     successful_removal = False
     if G_max_red.has_edge(edge[0], edge[1]) and rng.random()< prob:
-        G_max_close.remove_edge(edge[0], edge[1])
+        G_max_close, G_max_red, _, = remove_and_expand(G_max_close, G_max_red, [edge])
         successful_removal = True
-        G_max_red= nx.transitive_reduction(G_max_close)
-        #copying over edge data
-        G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     elif G_max_red.has_edge(edge[0], edge[1]):
         G_min.add_edge(edge[0], edge[1])
     else:
@@ -119,6 +114,31 @@ def uncertain_query_prec_set(G_max_close, G_max_red, G_min, edge, rng):
         print(list(G_max_red.edges()))
     return G_max_close, G_max_red, G_min, successful_removal
 
+def remove_and_expand(G_max_close, G_max_red,new_removed):
+    '''Removes edges from G_max_close and G_max_red in place. returns G_max_close, G_max_red, and the edges added to G_max_red'''
+    G_max_close.remove_edges_from(new_removed)
+    G_max_red.remove_edges_from(new_removed)
+    added_edges = []
+    
+    for edge in new_removed:
+        parent= edge[0]
+        child = edge[1]
+        #Relink predecessors
+        anc = list(nx.ancestors(G_max_red, child))
+        for pred in G_max_red.predecessors(parent):
+            if G_max_close.has_edge(pred, child) and not G_max_red.has_edge(pred,child) and pred not in anc:
+                edge_data = G_max_close.get_edge_data(pred, child)
+                G_max_red.add_edge(pred, child, **edge_data)
+                added_edges.append((pred, child))
+        #relink successors
+        dec = list(nx.descendants(G_max_red,parent))
+        for suc in G_max_red.successors(child):
+            if G_max_close.has_edge(parent, suc) and not G_max_red.has_edge(parent,suc) and suc not in dec:
+                edge_data = G_max_close.get_edge_data(parent, suc)
+                G_max_red.add_edge(parent, suc, **edge_data)
+                added_edges.append((parent, suc))
+
+    return G_max_close, G_max_red,  added_edges
 
 
 
