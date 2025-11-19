@@ -35,29 +35,238 @@ def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None)
     return graph_data
 
 
-def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, n_random=100,n_edge_random=0, feature_types={"all"}):
-    start=time.time()
+def albp_to_features(alb_instance, G_max_close=None, G_max_red=None, salbp_type="salbp_1", cap_constraint=None, n_random=100, n_edge_random=0, feature_types={"all"}):
+    t_func_start = time.perf_counter()
+    
+    profile_stats = {
+        'instance_parsing': 0.0,
+        'get_graph_metrics': 0.0,
+        'get_time_stats': 0.0,
+        'generate_priority_sol_stats': 0.0,
+        'dict_merging': 0.0,
+        'get_combined_edge_and_graph_data': 0.0,
+        'dataframe_conversion': 0.0,
+        'function_total': 0.0
+    }
+    
+    start = time.time()
+    
+    # Instance parsing
+    t_start = time.perf_counter()
     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
-    graph_metrics = get_graph_metrics(alb_instance)
+    profile_stats['instance_parsing'] = time.perf_counter() - t_start
+    
+    # Get graph metrics
+    t_start = time.perf_counter()
+    graph_metrics = get_graph_metrics(alb_instance,G_max_close, G_max_red)
+    profile_stats['get_graph_metrics'] = time.perf_counter() - t_start
+    
     if salbp_type == "salbp_1":
-        graph_data = {'instance':instance}
+        graph_data = {'instance': instance}
+        
+        # Get time stats
+        t_start = time.perf_counter()
         time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+        profile_stats['get_time_stats'] = time.perf_counter() - t_start
+        
+        # Generate priority solution stats (conditional)
         if not feature_types.isdisjoint({'all', 'grapheval'}):
+            t_start = time.perf_counter()
             combined_metrics = generate_priority_sol_stats_salbp1(alb_instance, n_random=n_random)
+            profile_stats['generate_priority_sol_stats'] = time.perf_counter() - t_start
+            
+            # Dict merging
+            t_start = time.perf_counter()
             graph_data = {**graph_data, **combined_metrics}
-        graph_time = time.time()-start
+            profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+        graph_time = time.time() - start
+        
+        # Final dict merging
+        t_start = time.perf_counter()
         graph_data = {**graph_data, **time_metrics, **graph_metrics, 'global_feature_time': graph_time}
-        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, feature_types=feature_types, n_random_solves=n_edge_random)
-    elif salbp_type == "salbp_2": #TODO check if this works
+        profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+        # Get combined edge and graph data
+        t_start = time.perf_counter()
+        final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, G_max_close=G_max_close, feature_types=feature_types, n_random_solves=n_edge_random)
+        profile_stats['get_combined_edge_and_graph_data'] = time.perf_counter() - t_start
+              
+    elif salbp_type == "salbp_2":  # TODO check if this works
         if cap_constraint:
             alb_instance['n_stations'] = cap_constraint
+        
+        # Get time stats for SALBP-2
+        t_start = time.perf_counter()
         time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
+        profile_stats['get_time_stats'] = time.perf_counter() - t_start
+        
+        # Generate priority solution stats for SALBP-2
+        t_start = time.perf_counter()
         combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
-        graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
+        profile_stats['generate_priority_sol_stats'] = time.perf_counter() - t_start
+        
+        # Dict merging
+        t_start = time.perf_counter()
+        graph_data = {'instance': instance, **time_metrics, **graph_metrics, **combined_metrics}
+        profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+        # Get combined edge and graph data
+        t_start = time.perf_counter()
         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
-
+        profile_stats['get_combined_edge_and_graph_data'] = time.perf_counter() - t_start
+    
+    # Convert to DataFrame
+    t_start = time.perf_counter()
     final_data = pd.DataFrame(final_data)
+    profile_stats['dataframe_conversion'] = time.perf_counter() - t_start
+    
+    profile_stats['function_total'] = time.perf_counter() - t_func_start
+    
+    # Print profile summary
+    print("\n=== PROFILE: albp_to_features ===")
+    print(f"Total time: {profile_stats['function_total']:.4f}s")
+    print(f"SALBP type: {salbp_type}")
+    print(f"  instance_parsing:                   {profile_stats['instance_parsing']:.4f}s ({profile_stats['instance_parsing']/profile_stats['function_total']*100:.1f}%)")
+    print(f"  get_graph_metrics:                  {profile_stats['get_graph_metrics']:.4f}s ({profile_stats['get_graph_metrics']/profile_stats['function_total']*100:.1f}%)")
+    print(f"  get_time_stats:                     {profile_stats['get_time_stats']:.4f}s ({profile_stats['get_time_stats']/profile_stats['function_total']*100:.1f}%)")
+    if profile_stats['generate_priority_sol_stats'] > 0:
+        print(f"  generate_priority_sol_stats:        {profile_stats['generate_priority_sol_stats']:.4f}s ({profile_stats['generate_priority_sol_stats']/profile_stats['function_total']*100:.1f}%)")
+    print(f"  dict_merging:                       {profile_stats['dict_merging']:.4f}s ({profile_stats['dict_merging']/profile_stats['function_total']*100:.1f}%)")
+    print(f"  get_combined_edge_and_graph_data:   {profile_stats['get_combined_edge_and_graph_data']:.4f}s ({profile_stats['get_combined_edge_and_graph_data']/profile_stats['function_total']*100:.1f}%)")
+    print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
+    print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
+    print("=" * 35)
+    
     return final_data
+
+# def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint=None, n_random=100, n_edge_random=0, feature_types={"all"}):
+#     t_func_start = time.perf_counter()
+    
+#     profile_stats = {
+#         'instance_parsing': 0.0,
+#         'get_graph_metrics': 0.0,
+#         'get_time_stats': 0.0,
+#         'generate_priority_sol_stats': 0.0,
+#         'dict_merging': 0.0,
+#         'get_combined_edge_and_graph_data': 0.0,
+#         'dataframe_conversion': 0.0,
+#         'function_total': 0.0
+#     }
+    
+#     start = time.time()
+    
+#     # Instance parsing
+#     t_start = time.perf_counter()
+#     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
+#     profile_stats['instance_parsing'] = time.perf_counter() - t_start
+    
+#     # Get graph metrics
+#     t_start = time.perf_counter()
+#     graph_metrics = get_graph_metrics(alb_instance)
+#     profile_stats['get_graph_metrics'] = time.perf_counter() - t_start
+    
+#     if salbp_type == "salbp_1":
+#         graph_data = {'instance': instance}
+        
+#         # Get time stats
+#         t_start = time.perf_counter()
+#         time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+#         profile_stats['get_time_stats'] = time.perf_counter() - t_start
+        
+#         # Generate priority solution stats (conditional)
+#         if not feature_types.isdisjoint({'all', 'grapheval'}):
+#             t_start = time.perf_counter()
+#             combined_metrics = generate_priority_sol_stats_salbp1(alb_instance, n_random=n_random)
+#             profile_stats['generate_priority_sol_stats'] = time.perf_counter() - t_start
+            
+#             # Dict merging
+#             t_start = time.perf_counter()
+#             graph_data = {**graph_data, **combined_metrics}
+#             profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+#         graph_time = time.time() - start
+        
+#         # Final dict merging
+#         t_start = time.perf_counter()
+#         graph_data = {**graph_data, **time_metrics, **graph_metrics, 'global_feature_time': graph_time}
+#         profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+#         # Get combined edge and graph data
+#         t_start = time.perf_counter()
+#         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, feature_types=feature_types, n_random_solves=n_edge_random)
+#         profile_stats['get_combined_edge_and_graph_data'] = time.perf_counter() - t_start
+        
+#     elif salbp_type == "salbp_2":  # TODO check if this works
+#         if cap_constraint:
+#             alb_instance['n_stations'] = cap_constraint
+        
+#         # Get time stats for SALBP-2
+#         t_start = time.perf_counter()
+#         time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
+#         profile_stats['get_time_stats'] = time.perf_counter() - t_start
+        
+#         # Generate priority solution stats for SALBP-2
+#         t_start = time.perf_counter()
+#         combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
+#         profile_stats['generate_priority_sol_stats'] = time.perf_counter() - t_start
+        
+#         # Dict merging
+#         t_start = time.perf_counter()
+#         graph_data = {'instance': instance, **time_metrics, **graph_metrics, **combined_metrics}
+#         profile_stats['dict_merging'] += time.perf_counter() - t_start
+        
+#         # Get combined edge and graph data
+#         t_start = time.perf_counter()
+#         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
+#         profile_stats['get_combined_edge_and_graph_data'] = time.perf_counter() - t_start
+    
+#     # Convert to DataFrame
+#     t_start = time.perf_counter()
+#     final_data = pd.DataFrame(final_data)
+#     profile_stats['dataframe_conversion'] = time.perf_counter() - t_start
+    
+#     profile_stats['function_total'] = time.perf_counter() - t_func_start
+    
+#     # Print profile summary
+#     print("\n=== PROFILE: albp_to_features ===")
+#     print(f"Total time: {profile_stats['function_total']:.4f}s")
+#     print(f"SALBP type: {salbp_type}")
+#     print(f"  instance_parsing:                   {profile_stats['instance_parsing']:.4f}s ({profile_stats['instance_parsing']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"  get_graph_metrics:                  {profile_stats['get_graph_metrics']:.4f}s ({profile_stats['get_graph_metrics']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"  get_time_stats:                     {profile_stats['get_time_stats']:.4f}s ({profile_stats['get_time_stats']/profile_stats['function_total']*100:.1f}%)")
+#     if profile_stats['generate_priority_sol_stats'] > 0:
+#         print(f"  generate_priority_sol_stats:        {profile_stats['generate_priority_sol_stats']:.4f}s ({profile_stats['generate_priority_sol_stats']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"  dict_merging:                       {profile_stats['dict_merging']:.4f}s ({profile_stats['dict_merging']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"  get_combined_edge_and_graph_data:   {profile_stats['get_combined_edge_and_graph_data']:.4f}s ({profile_stats['get_combined_edge_and_graph_data']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
+#     print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
+#     print("=" * 35)
+    
+#     return final_data
+# def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint = None, n_random=100,n_edge_random=0, feature_types={"all"}):
+#     start=time.time()
+#     instance = str(alb_instance['name']).split('/')[-1].split('.')[0]
+#     graph_metrics = get_graph_metrics(alb_instance)
+#     if salbp_type == "salbp_1":
+#         graph_data = {'instance':instance}
+#         time_metrics = get_time_stats(alb_instance, C=cap_constraint)
+#         if not feature_types.isdisjoint({'all', 'grapheval'}):
+#             combined_metrics = generate_priority_sol_stats_salbp1(alb_instance, n_random=n_random)
+#             graph_data = {**graph_data, **combined_metrics}
+#         graph_time = time.time()-start
+#         graph_data = {**graph_data, **time_metrics, **graph_metrics, 'global_feature_time': graph_time}
+#         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data, feature_types=feature_types, n_random_solves=n_edge_random)
+#     elif salbp_type == "salbp_2": #TODO check if this works
+#         if cap_constraint:
+#             alb_instance['n_stations'] = cap_constraint
+#         time_metrics = get_time_stats_salb2(alb_instance, S=cap_constraint)
+#         combined_metrics = generate_priority_sol_stats_salbp2(alb_instance)
+#         graph_data = {'instance':instance, **time_metrics, **graph_metrics, **combined_metrics}
+#         final_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
+
+#     final_data = pd.DataFrame(final_data)
+#     return final_data
 
 
 def generate_graph_data_from_pickle(pickle_instance_fp, pool_size=4 , salbp_type="salbp_1",cap_constraint=None):

@@ -9,6 +9,13 @@ def sorted_copy(G):
     return H
 
 
+def reinsert_edge( new_removed, added_edges, G_max_red, G_max_close):
+        
+        G_max_red.remove_edges_from(added_edges)
+        G_max_red.add_edges_from(new_removed)
+        G_max_close.add_edges_from(new_removed)
+
+
 def rename_nodes_topological(G):
     """
     Rename nodes to respect topological ordering

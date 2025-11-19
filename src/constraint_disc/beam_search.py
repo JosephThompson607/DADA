@@ -113,6 +113,14 @@ def remove_edges(G_max_close_orig, removed_edges):
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
     return G_max_red
 
+def get_missing_data(G_max_close, new_removed):
+    edge_data = []
+    for u, v in new_removed:
+        data = G_max_close.get_edge_data(u, v)
+        if data is not None:
+            edge_data.append((u, v, data))
+    return edge_data
+
 def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, rng = None, beam_config = {"width":1, "depth":1} , init_sol = None,mode='beam_mh', **mhkwargs):
     width = beam_config["width"]
     depth = beam_config["depth"]
@@ -156,25 +164,16 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
                     # G_max_red = remove_edges(G_max_close, new_removed)
                     # G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
                     #SAVES edge data for removed edge
-                    print("evaluating this sedge", edge)
-                    edge_data = []
-                    for u, v in new_removed:
-                        data = G_max_close.get_edge_data(u, v)
-                        if data is not None:
-                            edge_data.append((u, v, data))
-                    print("removed edge data ", new_removed)
+                    edge_data = get_missing_data(G_max_close, new_removed)
                     #Removes edge
                     G_max_close, G_max_red, added_edges = remove_and_expand(G_max_close, G_max_red, new_removed)
-                    print("G_max_red edges ", list(G_max_red.edges()))
                     #Sets up re-solve
                     new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
                     res = mh(new_salbp, **mhkwargs)
                     current_val = res['n_stations']
                     reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val))
                     #Resets and replaces edge
-                    G_max_red.remove_edges_from(added_edges)
-                    G_max_red.add_edges_from(edge_data)
-                    G_max_close.add_edges_from(edge_data)
+                    reinsert_edge(edge_data, added_edges, G_max_red, G_max_close)
                 elif mode == 'beam_prob':
                     #Value is 1 for removing the edge times the likelihood of removing the edge, plus some noise to break ties
                     reward = old_sol.accumulated_reward + prob * 1.0 + 1e-6 * rng.random()
@@ -222,18 +221,19 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},r
     for c_d in range(depth):
         elites = EliteSet(width)
         while len(queue)  > 0:
-            print("Here is the depth and width", depth, " ", width)
-            print("Here is the queue", queue)
             old_sol= queue.pop(0)
             remaining_budget = old_sol.remaining_budget
             to_remove = old_sol.edges.copy()
-            G_max_red = remove_edges(G_max_close, to_remove)   
+            edge_data = get_missing_data(G_max_close, to_remove)
+            G_max_close, G_max_red, added_edges = remove_and_expand(G_max_close, G_max_red, to_remove)
             edges = get_possible_edges(G_max_red, G_min, remaining_budget)
             edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, ml_config, top_n=width)
+
             if  edge_res: #No available edges to query can be due to time limit
                 state_prob = old_sol.state_probability 
-                for edge,_, contribution,_, t_cost in edge_res:
+                for edge,_, contribution,prob, t_cost in edge_res:
                     new_removed = to_remove+ [(edge[0], edge[1])]
+
                     #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
                     edge_set = frozenset(new_removed)
                     if edge_set in history:
@@ -252,6 +252,8 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},r
                     if sol > best_sol:
                         best_sol = sol
                     elites.add(sol)
+            #Resets and replaces edge
+            reinsert_edge(edge_data, added_edges, G_max_red, G_max_close)
                 #sorting elites so we consider the sequence of edges with the higher accumulated reward first. 
                 #Otherwise the history could accidentally prevent us from doing the better sequence
         queue = elites.get_elites(sort_elites=True)

@@ -67,10 +67,10 @@ def calc_phi_no_luck(phi_0, edge_prob, edge_weight, edge_cost, remaining_time):
 
 
 
-def calc_phi_ml(orig_salbp, G_max_red, edges, ml_model,ml_config,remaining_budget,  **_):
-    edge_df = predictor(orig_salbp, G_max_red, ml_model, ml_config,**_)
+def calc_phi_ml(orig_salbp,G_max_close, G_max_red, edges, ml_model,ml_config,remaining_budget,  **_):
+    edge_df = predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config,**_)
     edge_prob_df = filter_for_valid_edges(edges, edge_df.copy())
-    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']
+    edge_prob_df['reward'] =  edge_prob_df['precedent_prob']* edge_prob_df['pred_val_prob']/edge_prob_df['t_cost']
     att = edge_prob_df['reward'].sum()
     #     att += reward
     future_budget = max(0,remaining_budget)
@@ -92,7 +92,6 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
     G_max_red_orig = nx.transitive_reduction(G_max_close_orig)
     G_max_red_orig.add_edges_from((u, v, G_max_close_orig.edges[u, v]) for u, v in G_max_red_orig.edges)
     edges_orig = get_possible_edges(G_max_red_orig, G_min_orig, max_budget)
-    print("lstd THese are the mh kwargs", mhkwargs)
     for trial in range(m):
         start = time.time()
         G_min = G_min_orig.copy()
@@ -101,7 +100,7 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
         G_max_red = G_max_red_orig.copy()
         edges = edges_orig.copy()
         if mode == 'lstd_ml':
-            phi_0, edge_data = calc_phi_ml(orig_salbp, G_max_red, edges, ml_model,ml_config,remaining_budget)
+            phi_0, edge_data = calc_phi_ml(orig_salbp, G_max_close, G_max_red, edges, ml_model,ml_config,remaining_budget)
         else:
             phi_0, edge_data = calc_phi_mh(orig_salbp, G_max_close,G_max_red, edges, mh, remaining_budget, old_value=prev_val, mode=mode, **mhkwargs)
         A, b = run_episode(
@@ -130,15 +129,14 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
 
     while edges and remaining_budget > 0:
         start_time = time.time()
-        print("Here is the prev val", prev_val)
         # Find best edge
         if mode in ( "lstd_mh", "lstd_prob") :
             best_edge, best_prob, best_weight,best_val, best_time = select_best_edge(
                 edges, orig_salbp, G_max_close,G_max_red, G_min, mh, 
                 remaining_budget, phi_0, theta, mode,prev_val, edge_data,**mhkwargs
             )
-            edge_selection_time = time.time()
-            print("time to select best edge: ", edge_selection_time - start_time )
+            
+            
         elif mode == "lstd_ml":
             best_edge, best_prob, best_weight,_, best_time = select_best_edge_ml(
                 edges, orig_salbp, G_max_close, G_max_red, G_min, 
@@ -148,7 +146,8 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
             best_val=prev_val #Don't keep track the objective value
         else:
             print("Error: No vaild mode selected")
-        
+        edge_selection_time = time.time()
+        print("time to select best edge: ", edge_selection_time - start_time )
         print("Best edge", best_edge, "best_weight", best_weight, "best prob", best_prob)
         # update b
         b = b + phi_0 * best_prob * best_weight
@@ -169,7 +168,7 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
         print("edge find time ", edge_find_time - update_time)
         # update A and phi_0
         if mode == 'lstd_ml':
-            phi_1,edge_data = calc_phi_ml(orig_salbp, G_max_red, edges, ml_model, ml_config, remaining_budget)
+            phi_1,edge_data = calc_phi_ml(orig_salbp, G_max_close, G_max_red, edges, ml_model, ml_config, remaining_budget)
         else:
             phi_1, edge_data = calc_phi_mh(orig_salbp, G_max_close, G_max_red, edges, mh, remaining_budget, old_value=prev_val, mode=mode, **mhkwargs)
         step = phi_0 - discount_factor * phi_1
@@ -232,11 +231,8 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
         phi_no_luck = calc_phi_no_luck(phi_0, edge[2], weight, edge[3], remaining_time)
         reward =max(0, edge[2] * (weight + np.dot(phi, theta)) + (1 - edge[2]) * np.dot(phi_no_luck, theta))
         #Reset graph
-        G_max_red.remove_edges_from(added_edges)
-    
         new_removed = [(edge[0], edge[1], {'prob':edge[2], 't_cost':edge[3]})]
-        G_max_red.add_edges_from(new_removed)
-        G_max_close.add_edges_from(new_removed)
+        reinsert_edge(new_removed, added_edges, G_max_red, G_max_close)
         time_phi += time.perf_counter()-t4
         #Check if best reward
         if reward >= best_reward:
@@ -246,14 +242,14 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
             best_reward = reward
             best_val = val
             best_time = edge[3]
-    print("G_max_close edges after ", list(G_max_close.edges()))
-    print("G_max_red edges after ", list(G_max_red.edges()))
-    print("\n🔍 TIMING BREAKDOWN:")
-    print(f"   Transitive closure:   {time_transitive:.4f}s  ⚠️ LIKELY BOTTLENECK")
-    print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
-    print(f"   Phi calculations:     {time_phi:.4f}s")
-    total = time_copy + time_transitive + time_mh + time_phi
-    print(f"   Total tracked:        {total:.4f}s")
+    # print("G_max_close edges after ", list(G_max_close.edges()))
+    # print("G_max_red edges after ", list(G_max_red.edges()))
+    # print("\n🔍 TIMING BREAKDOWN:")
+    # print(f"   Transitive closure:   {time_transitive:.4f}s  ⚠️ LIKELY BOTTLENECK")
+    # print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
+    # print(f"   Phi calculations:     {time_phi:.4f}s")
+    # total = time_copy + time_transitive + time_mh + time_phi
+    # print(f"   Total tracked:        {total:.4f}s")
     
     return best_edge, best_prob, best_weight,best_val, best_time
 
@@ -285,13 +281,13 @@ def select_best_edge_ml(edges, orig_salbp, G_max_close, G_max_red, G_min,
 
         remaining_time = start_time-t_cost
         new_edges = get_possible_edges(G_max_red, G_min,remaining_time )
-        phi,_ = calc_phi_ml(orig_salbp, G_max_red, new_edges, ml_model,ml_config,remaining_time)
+        phi,_ = calc_phi_ml(orig_salbp, G_max_close, G_max_red, new_edges, ml_model,ml_config,remaining_time)
         phi_no_luck = calc_phi_no_luck(phi_0,  proba , weight, t_cost, remaining_time)
         reward =max(0,  proba *(weight + np.dot(phi, theta)) + (1 - proba) * np.dot(phi_no_luck, theta))
         #Reset graph
-        G_max_red.remove_from(added_edges)
-        G_max_red.add_from(new_removed)
-        G_max_close.add_from(new_removed)
+        new_removed = [(edge[0], edge[1], {'prob':proba, 't_cost':t_cost})]
+        reinsert_edge(new_removed, added_edges, G_max_red, G_max_close)
+
         if reward >= best_reward:
             best_reward = reward
             best_edge = edge
@@ -310,7 +306,7 @@ def lstd_search(orig_salbp, G_max_close_orig, G_min, mh,remaining_budget, theta,
     edges = get_possible_edges(G_max_red, G_min, remaining_budget=remaining_budget)
     if mode == "lstd_ml":
         #Here phi_0 is just used to generate the case when the edge selection fails, but can reuse the results
-        phi_0, edge_results = calc_phi_ml(orig_salbp, G_max_red, edges, ml_model, ml_config, remaining_budget)
+        phi_0, edge_results = calc_phi_ml(orig_salbp,G_max_close, G_max_red, edges, ml_model, ml_config, remaining_budget)
         best_edge, best_prob,_, _, best_time =select_best_edge_ml(edges, orig_salbp, G_max_close, G_max_red, G_min, remaining_budget, phi_0,theta,ml_model=ml_model, ml_config=ml_config, edge_data = edge_results)
     else:
         phi_0,edge_results = calc_phi_mh(orig_salbp, G_max_close, G_max_red, edges, mh,remaining_budget, old_value = 0, mode=mode, **mhkwargs)
