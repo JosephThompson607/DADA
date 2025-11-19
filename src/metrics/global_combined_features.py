@@ -8,7 +8,7 @@ from alb_instance_compressor import open_salbp_pickle
 import math
 from collections import defaultdict
 
-def get_station_assignment_stats2(priority_sols, cycle_time):
+def get_station_assignment_stats(priority_sols, cycle_time):
     """
 
     Computes mean/max/min/std for priority solutions
@@ -63,32 +63,6 @@ def get_station_assignment_stats2(priority_sols, cycle_time):
 
     return {"load_stats": result}
 
-def get_station_assignment_stats(priority_sols, cycle_time):
-    """Generate features for edges based where they fell in solutions"""
-    task_loads = []
-
-    for sol in priority_sols:
-        station_loads = sol["loads"]
-        station_assignments = sol["station_assignments"]
-
-        task_load_dict = {}
-        for idx, station_assignment in enumerate(station_assignments):
-            for task in station_assignment:
-                task_load_dict[task] = station_loads[idx] / cycle_time
-        task_loads.append(task_load_dict)
-    # Build dataframe
-    task_load_df = pd.DataFrame(task_loads)
-
-    # Aggregate stats per task
-    task_load_stats = task_load_df.aggregate(['mean', 'max', 'min','std'])
-
-    # Transpose so tasks become the keys
-    task_load_stats = task_load_stats.T
-    task_load_stats.sort_index(ascending=True, inplace=True)
-
-    stats_dict = task_load_stats.to_dict(orient="index")
-
-    return {"load_stats":stats_dict}
 
 def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_stats=True):
     total_start = time.time()
@@ -152,18 +126,18 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_sta
     # ---------------- Compute task load stats ----------------
     if generate_task_load_stats:
         t0 = time.time()
-        task_load_stats = get_station_assignment_stats2(priority_sols, cycle_time=alb["cycle_time"]) 
+        task_load_stats = get_station_assignment_stats(priority_sols, cycle_time=alb["cycle_time"]) 
         timings["task_load_stats"] = time.time() - t0
 
     # ---------------- Final timing report ----------------
     total_time = time.time() - total_start
 
-    print("\n=== Priority Stats Profiling ===")
-    for k, v in timings.items():
-        pct = (v / total_time) * 100
-        print(f"{k:25s}: {v:8.4f} sec   ({pct:5.1f}%)")
-    print(f"{'TOTAL':25s}: {total_time:8.4f} sec")
-    print("================================\n")
+    # print("\n=== Priority Stats Profiling ===")
+    # for k, v in timings.items():
+    #     pct = (v / total_time) * 100
+    #     print(f"{k:25s}: {v:8.4f} sec   ({pct:5.1f}%)")
+    # print(f"{'TOTAL':25s}: {total_time:8.4f} sec")
+    # print("================================\n")
 
     # ---------------- Return ----------------
     if generate_task_load_stats:

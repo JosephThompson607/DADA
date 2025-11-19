@@ -5,7 +5,188 @@ from ml_search import *
 from set_new_edges import *
 import random
 import time
-
+# def calc_phi_mh(orig_salbp, G_max_close_orig, G_max_red_orig, edges, mh, remaining_budget, 
+#                 old_value=0, mode='lstd_prob', **mhkwargs):
+#     t_func_start = time.perf_counter()
+    
+#     profile_stats = {
+#         'initialization': 0.0,
+#         'graph_copy': 0.0,
+#         'loop_total': 0.0,
+#         'edge_extraction': 0.0,
+#         'mode_lstd_prob': 0.0,
+#         'mode_lstd_mh_remove_expand': 0.0,
+#         'mode_lstd_mh_set_new_edges': 0.0,
+#         'mode_lstd_mh_mh_call': 0.0,
+#         'mode_lstd_mh_reward_calc': 0.0,
+#         'mode_lstd_mh_reinsert': 0.0,
+#         'mode_lstd_mh_total': 0.0,
+#         'att_accumulation': 0.0,
+#         'edge_data_storage': 0.0,
+#         'phi_construction': 0.0,
+#         'function_total': 0.0
+#     }
+    
+#     profile_counts = {
+#         'num_edges': len(edges),
+#         'iterations': 0,
+#         'lstd_prob_count': 0,
+#         'lstd_mh_count': 0
+#     }
+    
+#     # Initialization
+#     t_start = time.perf_counter()
+#     att = 0
+#     edge_data = {}
+#     profile_stats['initialization'] = time.perf_counter() - t_start
+    
+#     # Graph copy (conditional)
+#     if mode == "lstd_mh":
+#         t_start = time.perf_counter()
+#         G_max_close = G_max_close_orig.copy()
+#         G_max_red = G_max_red_orig.copy()
+#         profile_stats['graph_copy'] = time.perf_counter() - t_start
+    
+#     # Main loop
+#     t_loop_start = time.perf_counter()
+    
+#     for i, edge in enumerate(edges):
+#         t_iter_start = time.perf_counter()
+        
+#         # Extract edge data
+#         t_start = time.perf_counter()
+#         edge_prob = edge[2]
+#         edge_cost = edge[3]
+#         profile_stats['edge_extraction'] += time.perf_counter() - t_start
+        
+#         if mode == "lstd_prob":
+#             t_mode_start = time.perf_counter()
+#             reward = 1 * edge_prob / edge_cost
+#             n_stations = 0
+#             profile_stats['mode_lstd_prob'] += time.perf_counter() - t_mode_start
+#             profile_counts['lstd_prob_count'] += 1
+            
+#         elif mode == "lstd_mh":
+#             t_mode_start = time.perf_counter()
+            
+#             # Remove and expand
+#             t_start = time.perf_counter()
+#             new_removed = [edge]
+#             G_max_close, G_max_red, added_edges = remove_and_expand(G_max_close, G_max_red, new_removed)
+#             profile_stats['mode_lstd_mh_remove_expand'] += time.perf_counter() - t_start
+            
+#             # Set new edges
+#             t_start = time.perf_counter()
+#             new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
+#             profile_stats['mode_lstd_mh_set_new_edges'] += time.perf_counter() - t_start
+            
+#             # MH call
+#             t_start = time.perf_counter()
+#             res = mh(new_salbp, **mhkwargs)
+#             profile_stats['mode_lstd_mh_mh_call'] += time.perf_counter() - t_start
+            
+#             # Extract result and calculate reward
+#             t_start = time.perf_counter()
+#             n_stations = res['n_stations']
+#             reward = max(0, edge_prob * (old_value - n_stations) / edge_cost)
+#             profile_stats['mode_lstd_mh_reward_calc'] += time.perf_counter() - t_start
+            
+#             # Reinsert edge
+#             t_start = time.perf_counter()
+#             new_removed = [(edge[0], edge[1], {'prob': edge[2], 't_cost': edge[3]})]
+#             reinsert_edge(new_removed, added_edges, G_max_red, G_max_close)
+#             profile_stats['mode_lstd_mh_reinsert'] += time.perf_counter() - t_start
+            
+#             profile_stats['mode_lstd_mh_total'] += time.perf_counter() - t_mode_start
+#             profile_counts['lstd_mh_count'] += 1
+        
+#         # Accumulate reward
+#         t_start = time.perf_counter()
+#         att += reward
+#         profile_stats['att_accumulation'] += time.perf_counter() - t_start
+        
+#         # Store edge data
+#         t_start = time.perf_counter()
+#         edge_data[edge] = {
+#             'edge': edge,
+#             'reward': reward,
+#             'value': n_stations,
+#             'edge_prob': edge_prob,
+#             'edge_cost': edge_cost
+#         }
+#         profile_stats['edge_data_storage'] += time.perf_counter() - t_start
+        
+#         profile_counts['iterations'] += 1
+    
+#     profile_stats['loop_total'] = time.perf_counter() - t_loop_start
+    
+#     # Phi construction
+#     t_start = time.perf_counter()
+#     future_budget = remaining_budget
+#     phi = np.zeros(5)
+#     phi[0] = att
+#     phi[1] = att * np.sqrt(future_budget)
+#     phi[2] = att * future_budget
+#     phi[3] = np.sqrt(future_budget)
+#     phi[4] = future_budget
+#     profile_stats['phi_construction'] = time.perf_counter() - t_start
+    
+#     profile_stats['function_total'] = time.perf_counter() - t_func_start
+    
+#     # Calculate averages
+#     if profile_counts['iterations'] > 0:
+#         for key in ['edge_extraction', 'att_accumulation', 'edge_data_storage']:
+#             profile_stats[f'{key}_avg'] = profile_stats[key] / profile_counts['iterations']
+        
+#         if profile_counts['lstd_prob_count'] > 0:
+#             profile_stats['mode_lstd_prob_avg'] = profile_stats['mode_lstd_prob'] / profile_counts['lstd_prob_count']
+        
+#         if profile_counts['lstd_mh_count'] > 0:
+#             for key in ['mode_lstd_mh_remove_expand', 'mode_lstd_mh_set_new_edges', 
+#                        'mode_lstd_mh_mh_call', 'mode_lstd_mh_reward_calc', 'mode_lstd_mh_reinsert',
+#                        'mode_lstd_mh_total']:
+#                 profile_stats[f'{key}_avg'] = profile_stats[key] / profile_counts['lstd_mh_count']
+    
+#     # Print profile summary
+#     print("\n=== PROFILE: calc_phi_mh ===")
+#     print(f"Total time: {profile_stats['function_total']:.4f}s")
+#     print(f"Mode: {mode}")
+#     print(f"mh_kwargs: {mhkwargs}")
+#     print(f"Number of edges: {profile_counts['num_edges']}")
+    
+#     print(f"\nInitialization:")
+#     print(f"  initialization:     {profile_stats['initialization']:.4f}s ({profile_stats['initialization']/profile_stats['function_total']*100:.1f}%)")
+#     if profile_stats['graph_copy'] > 0:
+#         print(f"  graph_copy:         {profile_stats['graph_copy']:.4f}s ({profile_stats['graph_copy']/profile_stats['function_total']*100:.1f}%)")
+    
+#     print(f"\nLoop processing:")
+#     print(f"  loop_total:         {profile_stats['loop_total']:.4f}s ({profile_stats['loop_total']/profile_stats['function_total']*100:.1f}%)")
+    
+#     if mode == "lstd_prob" and profile_counts['lstd_prob_count'] > 0:
+#         print(f"\n  LSTD_PROB mode ({profile_counts['lstd_prob_count']} iterations):")
+#         print(f"    Total:            {profile_stats['mode_lstd_prob']:.4f}s ({profile_stats['mode_lstd_prob']/profile_stats['loop_total']*100:.1f}% of loop)")
+#         print(f"    Average per edge: {profile_stats['mode_lstd_prob_avg']:.4f}s")
+    
+#     if mode == "lstd_mh" and profile_counts['lstd_mh_count'] > 0:
+#         print(f"\n  LSTD_MH mode ({profile_counts['lstd_mh_count']} iterations):")
+#         print(f"    Total:                     {profile_stats['mode_lstd_mh_total']:.4f}s ({profile_stats['mode_lstd_mh_total']/profile_stats['loop_total']*100:.1f}% of loop)")
+#         print(f"    Average per edge:          {profile_stats['mode_lstd_mh_total_avg']:.4f}s")
+#         print(f"      remove_and_expand:       {profile_stats['mode_lstd_mh_remove_expand_avg']:.4f}s ({profile_stats['mode_lstd_mh_remove_expand']/profile_stats['mode_lstd_mh_total']*100:.1f}%)")
+#         print(f"      set_new_edges:           {profile_stats['mode_lstd_mh_set_new_edges_avg']:.4f}s ({profile_stats['mode_lstd_mh_set_new_edges']/profile_stats['mode_lstd_mh_total']*100:.1f}%)")
+#         print(f"      mh_call:                 {profile_stats['mode_lstd_mh_mh_call_avg']:.4f}s ({profile_stats['mode_lstd_mh_mh_call']/profile_stats['mode_lstd_mh_total']*100:.1f}%)")
+#         print(f"      reward_calc:             {profile_stats['mode_lstd_mh_reward_calc_avg']:.4f}s ({profile_stats['mode_lstd_mh_reward_calc']/profile_stats['mode_lstd_mh_total']*100:.1f}%)")
+#         print(f"      reinsert_edge:           {profile_stats['mode_lstd_mh_reinsert_avg']:.4f}s ({profile_stats['mode_lstd_mh_reinsert']/profile_stats['mode_lstd_mh_total']*100:.1f}%)")
+    
+#     print(f"\n  Common operations (avg per edge):")
+#     print(f"    edge_extraction:    {profile_stats['edge_extraction_avg']:.4f}s")
+#     print(f"    att_accumulation:   {profile_stats['att_accumulation_avg']:.4f}s")
+#     print(f"    edge_data_storage:  {profile_stats['edge_data_storage_avg']:.4f}s")
+    
+#     print(f"\nFinalization:")
+#     print(f"  phi_construction:   {profile_stats['phi_construction']:.4f}s ({profile_stats['phi_construction']/profile_stats['function_total']*100:.1f}%)")
+#     print("=" * 28)
+    
+#     return phi, edge_data
 def calc_phi_mh(orig_salbp, G_max_close_orig, G_max_red_orig, edges, mh,remaining_budget, old_value = 0, mode='lstd_prob', **mhkwargs):
     att = 0
     edge_data = {}
@@ -33,10 +214,9 @@ def calc_phi_mh(orig_salbp, G_max_close_orig, G_max_red_orig, edges, mh,remainin
             n_stations = res['n_stations']
             reward =  max( 0, edge_prob*(old_value - n_stations)/edge_cost)
             #Resets G_max_red and G_max_close
-            G_max_red.remove_edges_from(added_edges)
-            removed_edge= (edge[0], edge[1], {'prob': edge[2], 't_cost': edge[3]})
-            G_max_red.add_edges_from([removed_edge])
-            G_max_close.add_edges_from([removed_edge])
+            new_removed = [(edge[0], edge[1], {'prob':edge[2], 't_cost':edge[3]})]
+            reinsert_edge(new_removed, added_edges, G_max_red, G_max_close)
+
         att += reward
 
         #saves dict for info
@@ -88,6 +268,7 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
     theta = np.zeros(5)
     A = np.zeros((5, 5))
     b = np.zeros(5)
+    print('training. lstd. mode: ', mode)
     rng = random.Random(seed)
     G_max_red_orig = nx.transitive_reduction(G_max_close_orig)
     G_max_red_orig.add_edges_from((u, v, G_max_close_orig.edges[u, v]) for u, v in G_max_red_orig.edges)
@@ -102,7 +283,9 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
         if mode == 'lstd_ml':
             phi_0, edge_data = calc_phi_ml(orig_salbp, G_max_close, G_max_red, edges, ml_model,ml_config,remaining_budget)
         else:
+            print("here are the mh kwargs train lstd", mhkwargs)
             phi_0, edge_data = calc_phi_mh(orig_salbp, G_max_close,G_max_red, edges, mh, remaining_budget, old_value=prev_val, mode=mode, **mhkwargs)
+        print(f"here is phi_0, {phi_0}, running episode")
         A, b = run_episode(
             orig_salbp, G_max_close, G_max_red, G_min, edges, 
             remaining_budget, phi_0, theta, A, b, mh, mode, 
@@ -201,7 +384,7 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
     time_phi = 0
     G_max_close = G_max_close_orig.copy() #Copying for safety, hopefully unecessary
     G_max_red = G_max_red_orig.copy()
-
+    print("selecting best edge")
     for i, edge in enumerate(edges):
         t1 = time.perf_counter()
 
@@ -218,7 +401,6 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
             if mode == 'lstd_mh':
                 new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
                 res = mh(new_salbp, **mhkwargs)
-                
                 weight = max(0, prev_val - res['n_stations']) 
                 val = min(prev_val,res['n_stations']) #Sometimes mh can give a greater value with less constraints
 
@@ -242,14 +424,14 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
             best_reward = reward
             best_val = val
             best_time = edge[3]
-    # print("G_max_close edges after ", list(G_max_close.edges()))
-    # print("G_max_red edges after ", list(G_max_red.edges()))
-    # print("\n🔍 TIMING BREAKDOWN:")
-    # print(f"   Transitive closure:   {time_transitive:.4f}s  ⚠️ LIKELY BOTTLENECK")
-    # print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
-    # print(f"   Phi calculations:     {time_phi:.4f}s")
-    # total = time_copy + time_transitive + time_mh + time_phi
-    # print(f"   Total tracked:        {total:.4f}s")
+    print("G_max_close edges after ", list(G_max_close.edges()))
+    print("G_max_red edges after ", list(G_max_red.edges()))
+    print("\n🔍 TIMING BREAKDOWN:")
+    print(f"   Transitive closure:   {time_transitive:.4f}s  ")
+    print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
+    print(f"   Phi calculations:     {time_phi:.4f}s ⚠️ LIKELY BOTTLENECK")
+    total = time_copy + time_transitive + time_mh + time_phi
+    print(f"   Total tracked:        {total:.4f}s")
     
     return best_edge, best_prob, best_weight,best_val, best_time
 

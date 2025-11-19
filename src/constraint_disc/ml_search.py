@@ -82,8 +82,8 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
     return list(zip(best_rows['edge'], best_rows['pred_val_prob'],best_rows['reward'], best_rows['precedent_prob'], best_rows['t_cost']))
 
 
-def best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,ml_config, top_n=1, **_):
+def best_first_ml_choice_edge(edges, orig_salbp,G_max_close, G_max_red, ml_model,ml_config, top_n=1, **_):
     '''Selects the edge with the highest probability of reducing the objective value'''
-    prob_df = predictor(orig_salbp, G_max_red, ml_model,ml_config)
+    prob_df = predictor(orig_salbp, G_max_close, G_max_red, ml_model,ml_config)
     best_edges = select_best_n_edges(prob_df, edges,top_n)
     return best_edges

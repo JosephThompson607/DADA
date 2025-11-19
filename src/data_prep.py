@@ -124,19 +124,19 @@ def albp_to_features(alb_instance, G_max_close=None, G_max_red=None, salbp_type=
     profile_stats['function_total'] = time.perf_counter() - t_func_start
     
     # Print profile summary
-    print("\n=== PROFILE: albp_to_features ===")
-    print(f"Total time: {profile_stats['function_total']:.4f}s")
-    print(f"SALBP type: {salbp_type}")
-    print(f"  instance_parsing:                   {profile_stats['instance_parsing']:.4f}s ({profile_stats['instance_parsing']/profile_stats['function_total']*100:.1f}%)")
-    print(f"  get_graph_metrics:                  {profile_stats['get_graph_metrics']:.4f}s ({profile_stats['get_graph_metrics']/profile_stats['function_total']*100:.1f}%)")
-    print(f"  get_time_stats:                     {profile_stats['get_time_stats']:.4f}s ({profile_stats['get_time_stats']/profile_stats['function_total']*100:.1f}%)")
-    if profile_stats['generate_priority_sol_stats'] > 0:
-        print(f"  generate_priority_sol_stats:        {profile_stats['generate_priority_sol_stats']:.4f}s ({profile_stats['generate_priority_sol_stats']/profile_stats['function_total']*100:.1f}%)")
-    print(f"  dict_merging:                       {profile_stats['dict_merging']:.4f}s ({profile_stats['dict_merging']/profile_stats['function_total']*100:.1f}%)")
-    print(f"  get_combined_edge_and_graph_data:   {profile_stats['get_combined_edge_and_graph_data']:.4f}s ({profile_stats['get_combined_edge_and_graph_data']/profile_stats['function_total']*100:.1f}%)")
-    print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
-    print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
-    print("=" * 35)
+    # print("\n=== PROFILE: albp_to_features ===")
+    # print(f"Total time: {profile_stats['function_total']:.4f}s")
+    # print(f"SALBP type: {salbp_type}")
+    # print(f"  instance_parsing:                   {profile_stats['instance_parsing']:.4f}s ({profile_stats['instance_parsing']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"  get_graph_metrics:                  {profile_stats['get_graph_metrics']:.4f}s ({profile_stats['get_graph_metrics']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"  get_time_stats:                     {profile_stats['get_time_stats']:.4f}s ({profile_stats['get_time_stats']/profile_stats['function_total']*100:.1f}%)")
+    # if profile_stats['generate_priority_sol_stats'] > 0:
+    #     print(f"  generate_priority_sol_stats:        {profile_stats['generate_priority_sol_stats']:.4f}s ({profile_stats['generate_priority_sol_stats']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"  dict_merging:                       {profile_stats['dict_merging']:.4f}s ({profile_stats['dict_merging']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"  get_combined_edge_and_graph_data:   {profile_stats['get_combined_edge_and_graph_data']:.4f}s ({profile_stats['get_combined_edge_and_graph_data']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
+    # print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
+    # print("=" * 35)
     
     return final_data
 

@@ -412,12 +412,12 @@ def get_combined_edge_and_graph_data(
         edge_list.append(res_dict)
 
     # Print summary timings
-    print("\n=== Timing Summary ===")
-    for k, v in timings.items():
-        print(f"{k:25s}: {v:8.4f} sec")
+    # print("\n=== Timing Summary ===")
+    # for k, v in timings.items():
+    #     print(f"{k:25s}: {v:8.4f} sec")
 
-    print(f"total_runtime           : {time.time() - total_start:8.4f} sec")
-    print("=======================\n")
+    # print(f"total_runtime           : {time.time() - total_start:8.4f} sec")
+    # print("=======================\n")
 
     return edge_list
 # def get_combined_edge_and_graph_data(alb, graph_data, G_max_close=None, n_random_solves=0, feature_types={"all"}):

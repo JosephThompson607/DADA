@@ -189,8 +189,6 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
                     q_cost = old_sol.query_cost
                 
                 sol = Solution(reward,prob,best_value, q_cost,remaining_budget,new_removed)
-                print("sol", sol)
-                print("best sol", best_sol)
                 if sol >= best_sol:
                     best_sol = sol
                 elites.add(sol) #Adds solution if higher reward, otherwise ignores it
@@ -203,7 +201,6 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
         queue = elites.get_elites(sort_elites=True)
     obj = best_sol.accumulated_reward
     edges = best_sol.edges
-    print("EDGES ", edges)
     t_cost = best_sol.query_cost
     return edges[0], obj, t_cost
 
@@ -227,7 +224,7 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},r
             edge_data = get_missing_data(G_max_close, to_remove)
             G_max_close, G_max_red, added_edges = remove_and_expand(G_max_close, G_max_red, to_remove)
             edges = get_possible_edges(G_max_red, G_min, remaining_budget)
-            edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_red, ml_model, ml_config, top_n=width)
+            edge_res = best_first_ml_choice_edge(edges,orig_salbp, G_max_close,G_max_red, ml_model, ml_config, top_n=width)
 
             if  edge_res: #No available edges to query can be due to time limit
                 state_prob = old_sol.state_probability 
