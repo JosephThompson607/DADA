@@ -206,11 +206,9 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             edge = (edge[0], edge[1], edge_data['prob'], edge_data['t_cost'])
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
         elif selector_method in ('beam_mh', 'beam_prob'): 
-                    
             edge, _, t_cost = beam_search_mh( orig_salbp, G_max_close,G_min, mh,remaining_budget, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
             edge_data = G_max_close[edge[0]][edge[1]] #Getting edge data
             edge = (edge[0], edge[1], edge_data['prob'], edge_data['t_cost'])
-            print(f'did beam search, got {edge} with method {selector_method}')
         elif selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
             edge, _, t_cost = lstd_search(orig_salbp, G_max_close, G_min, mh,remaining_budget, theta,prev_val=n_stations, mode=selector_method, ml_config=ml_config, ml_model=ml_model,**new_kwargs )
         elif selector_method =='random':

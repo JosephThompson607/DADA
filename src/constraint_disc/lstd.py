@@ -283,9 +283,9 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
         if mode == 'lstd_ml':
             phi_0, edge_data = calc_phi_ml(orig_salbp, G_max_close, G_max_red, edges, ml_model,ml_config,remaining_budget)
         else:
-            print("here are the mh kwargs train lstd", mhkwargs)
+            # print("here are the mh kwargs train lstd", mhkwargs)
             phi_0, edge_data = calc_phi_mh(orig_salbp, G_max_close,G_max_red, edges, mh, remaining_budget, old_value=prev_val, mode=mode, **mhkwargs)
-        print(f"here is phi_0, {phi_0}, running episode")
+        # print(f"here is phi_0, {phi_0}, running episode")
         A, b = run_episode(
             orig_salbp, G_max_close, G_max_red, G_min, edges, 
             remaining_budget, phi_0, theta, A, b, mh, mode, 
@@ -296,7 +296,7 @@ def train_lstd(orig_salbp, G_max_close_orig, G_min_orig, max_budget, mh, mode='l
         #1e-6 #regularization terms to avoid singular matrices
         theta = np.linalg.inv(A+ lambda_reg * np.eye(5)) @ b
         end = time.time()
-        print(" trial ", trial, " This is theta", theta, " trial time is ", end-start)
+        # print(" trial ", trial, " This is theta", theta, " trial time is ", end-start)
     return theta
 
 
