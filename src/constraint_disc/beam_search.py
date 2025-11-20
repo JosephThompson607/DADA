@@ -171,7 +171,7 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
                     new_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
                     res = mh(new_salbp, **mhkwargs)
                     current_val = res['n_stations']
-                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val))
+                    reward = old_sol.accumulated_reward+ max( 0, prob*(old_sol.value - current_val)/edge_time_cost)
                     #Resets and replaces edge
                     reinsert_edge(edge_data, added_edges, G_max_red, G_max_close)
                 elif mode == 'beam_prob':
@@ -238,8 +238,8 @@ def beam_search_ml( orig_salbp, G_max_close_orig,G_min, ml_model, ml_config={},r
                     # Store the current removal sequence
                     history.add(edge_set)
                     #We do not have real objective value, here we are maximizing the sum of the probabilities
-                    #Contribution is (prob_edge_exist*prob_edge_contributes)/query_time
-                    reward = old_sol.accumulated_reward + discount_factor*contribution* state_prob
+                    #Contribution is (prob_edge_exist*prob_edge_contributes), so have to divide by t_cost
+                    reward = old_sol.accumulated_reward + discount_factor*contribution* state_prob/t_cost
                     new_budget = remaining_budget - t_cost
                     if not old_sol.query_cost: #query cost is the cost of the first query
                         q_cost = t_cost

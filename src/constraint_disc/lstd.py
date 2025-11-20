@@ -330,8 +330,8 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
         else:
             print("Error: No vaild mode selected")
         edge_selection_time = time.time()
-        print("time to select best edge: ", edge_selection_time - start_time )
-        print("Best edge", best_edge, "best_weight", best_weight, "best prob", best_prob)
+        # print("time to select best edge: ", edge_selection_time - start_time )
+        # print("Best edge", best_edge, "best_weight", best_weight, "best prob", best_prob)
         # update b
         b = b + phi_0 * best_prob * best_weight
         
@@ -340,7 +340,7 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
             G_max_close, G_max_red, G_min, best_edge, rng
         )
         update_time = time.time()
-        print(" edge update time ", update_time -edge_selection_time)
+        # print(" edge update time ", update_time -edge_selection_time)
         if success: #If edges successfully removed, we have the new objective value
             prev_val = best_val
         # update budget
@@ -348,19 +348,19 @@ def run_episode(orig_salbp, G_max_close, G_max_red, G_min, edges,
         #update edge set to choose from
         edges = get_possible_edges(G_max_red, G_min, remaining_budget=remaining_budget)
         edge_find_time = time.time()
-        print("edge find time ", edge_find_time - update_time)
+        # print("edge find time ", edge_find_time - update_time)
         # update A and phi_0
         if mode == 'lstd_ml':
             phi_1,edge_data = calc_phi_ml(orig_salbp, G_max_close, G_max_red, edges, ml_model, ml_config, remaining_budget)
         else:
             phi_1, edge_data = calc_phi_mh(orig_salbp, G_max_close, G_max_red, edges, mh, remaining_budget, old_value=prev_val, mode=mode, **mhkwargs)
         step = phi_0 - discount_factor * phi_1
-        print(f"phi_0 {phi_0}, phi_1 {phi_1} ")
-        print("Here is the step", step)
+        # print(f"phi_0 {phi_0}, phi_1 {phi_1} ")
+        # print("Here is the step", step)
         A = A + np.outer(phi_0, step)
         phi_0 = phi_1
         phi_and_math_time = time.time()
-        print("time for updating linealg", phi_and_math_time - edge_find_time)
+        # print("time for updating linealg", phi_and_math_time - edge_find_time)
     return A, b
 
 
@@ -384,7 +384,6 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
     time_phi = 0
     G_max_close = G_max_close_orig.copy() #Copying for safety, hopefully unecessary
     G_max_red = G_max_red_orig.copy()
-    print("selecting best edge")
     for i, edge in enumerate(edges):
         t1 = time.perf_counter()
 
@@ -424,14 +423,12 @@ def select_best_edge(edges, orig_salbp, G_max_close_orig,G_max_red_orig, G_min, 
             best_reward = reward
             best_val = val
             best_time = edge[3]
-    print("G_max_close edges after ", list(G_max_close.edges()))
-    print("G_max_red edges after ", list(G_max_red.edges()))
-    print("\n🔍 TIMING BREAKDOWN:")
-    print(f"   Transitive closure:   {time_transitive:.4f}s  ")
-    print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
-    print(f"   Phi calculations:     {time_phi:.4f}s ⚠️ LIKELY BOTTLENECK")
-    total = time_copy + time_transitive + time_mh + time_phi
-    print(f"   Total tracked:        {total:.4f}s")
+    # print("\n🔍 TIMING BREAKDOWN:")
+    # print(f"   Transitive closure:   {time_transitive:.4f}s  ")
+    # print(f"   Metaheuristic (mh):   {time_mh:.4f}s")
+    # print(f"   Phi calculations:     {time_phi:.4f}s ⚠️ LIKELY BOTTLENECK")
+    # total = time_copy + time_transitive + time_mh + time_phi
+    # print(f"   Total tracked:        {total:.4f}s")
     
     return best_edge, best_prob, best_weight,best_val, best_time
 
