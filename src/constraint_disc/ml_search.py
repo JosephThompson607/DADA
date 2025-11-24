@@ -12,7 +12,7 @@ def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config,**_):
     ml_feature_list = ml_config["features"]
     test_salbp = copy.deepcopy(orig_salbp)
     test_salbp['precedence_relations'] = list(G_max_red.edges())
-    edge_features = albp_to_features(test_salbp, G_max_close, G_max_red, salbp_type="salbp_1", cap_constraint = None, n_random=ml_config['n_random'], feature_types=set(ml_config['feature_types']), n_edge_random=ml_config['n_edge_random'])
+    edge_features = albp_to_features(test_salbp,  salbp_type="salbp_1",G_max_red=G_max_red, G_max_close=G_max_close, cap_constraint = None, n_random=ml_config['n_random'], feature_types=set(ml_config['feature_types']), n_edge_random=ml_config['n_edge_random'])
     edge_names = edge_features['edge']
     edge_features 
     features = ml_feature_list

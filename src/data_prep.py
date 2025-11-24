@@ -35,7 +35,7 @@ def alb_to_graph_data(alb_instance, salbp_type="salbp_1", cap_constraint = None)
     return graph_data
 
 
-def albp_to_features(alb_instance, G_max_close=None, G_max_red=None, salbp_type="salbp_1", cap_constraint=None, n_random=100, n_edge_random=0, feature_types={"all"}):
+def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint=None, G_max_red=None, G_max_close=None, n_random=100, n_edge_random=100, feature_types={"all"}):
     t_func_start = time.perf_counter()
     
     profile_stats = {
@@ -505,7 +505,6 @@ def prep_data_for_ml(result_csv, edge_data_df_fp,  ml_dat_out, remove_incomplete
     my_df = pd.read_csv(result_csv)
 
     my_df = get_salbp_ub(my_df, obj_col=obj_col, new_name=new_name)
-    print("res data columns after ub", my_df.columns)
     if remove_incomplete:
         instance_counts = my_df.groupby('instance')['precedence_relation'].count().reset_index()
         instance_counts.rename(columns={"precedence_relation":"row_counts"}, inplace=True)
@@ -518,10 +517,16 @@ def prep_data_for_ml(result_csv, edge_data_df_fp,  ml_dat_out, remove_incomplete
 
     edge_data = pd.read_csv(edge_data_df_fp)
     print("edge data columns", edge_data.columns)
+    print('idx in columns', 'idx' in edge_data.columns, 'instance' in edge_data.columns)
+    print('my_df', 'instance' in my_df.columns, 'precedence_relation' in my_df.columns)
     edge_data = edge_data.loc[:, ~edge_data.columns.str.contains("^Unnamed")]
-
+    my_df['precedence_relation'] = my_df['precedence_relation'].astype('int64')
+    edge_data['idx'] = edge_data['idx'].astype('int64')
+    print('edge_data instances', edge_data['instance'])
+    print('my_df ', my_df['instance'])
     my_df = pd.merge(my_df, edge_data, left_on = ['instance','precedence_relation'], right_on = ['instance','idx'], how="inner")
     print("here are the columns now, ", my_df.columns)
+    print("dataframe after merge: ", my_df)
     my_df = add_min_and_max(my_df, obj_col)
     my_df = my_df.drop(columns='idx')
     my_df =my_df.rename(columns={'nodes':'edge', 'original_n_precedence_constraints':'n_edges'})

@@ -1,5 +1,21 @@
 import numpy as np
+import sys
+build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
+sys.path.insert(0, build_dir)
+build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
+sys.path.insert(0, build_dir_2)
+import ILS_ALBP
+import math
 
+
+
+
+def get_lb6(salbp1_instance, C=1000):
+    task_times = [val for val in  salbp1_instance['task_times'].values()]
+    if 'cycle_time' in salbp1_instance.keys():
+        C = salbp1_instance['cycle_time']
+    lb_6 = ILS_ALBP.calc_salbp_1_lb6(task_times, C)
+    return lb_6
 
 
 def get_time_stats(alb_instance, C=None):
@@ -21,7 +37,9 @@ def get_time_stats(alb_instance, C=None):
     std_div_c = np.std(task_times) / C
     avg_div_c = np.mean(task_times)/ C
     t_cv = np.std(task_times)/(sum(task_times)/len(task_times))
-    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size, 'avg_div_c':avg_div_c}
+    lb_1 = math.ceil(sum_div_c)
+    lb_6 = get_lb6(alb_instance)
+    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size, 'avg_div_c':avg_div_c, 'lb_6':lb_6, 'lb_1':lb_1}
 
 
 

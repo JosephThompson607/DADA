@@ -7,6 +7,8 @@ import time
 from alb_instance_compressor import open_salbp_pickle
 import math
 from collections import defaultdict
+import sys
+
 
 def get_station_assignment_stats(priority_sols, cycle_time):
     """
@@ -180,8 +182,11 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_sta
 #         return {**metrics, **task_load_stats}
 #     return metrics
 
+
+
 def calc_global_combined_features_salbp1(alb_instance):
    priority_metrics = generate_priority_sol_stats_salbp1(alb_instance)
+
    return priority_metrics
 
 

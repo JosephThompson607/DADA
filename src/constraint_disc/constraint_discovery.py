@@ -164,7 +164,13 @@ def os_weight(new_salbp,*args,output_name = "n_stations", **kwargs):
     return {output_name:os}
 
 def random_valid(G_max_red, G_min,  rng, remaining_budget):
+    '''Selects a random edge that is in G_max red and out of G_min_close'''
     edges = get_possible_edges(G_max_red, G_min, remaining_budget=remaining_budget)
+    return rng.choice(edges)
+
+def random_valid_biased(G_max_red, G_min,  rng, remaining_budget, edge_prob_bias=0.5):
+    '''Selects a random edge that is in G_max red and out of G_min_close', first tries to select an edge with higher likelyhood '''
+    edges = get_possible_edges_biased(G_max_red, G_min, remaining_budget=remaining_budget, edge_prob_bias=edge_prob_bias)
     return rng.choice(edges)
 
 
@@ -214,7 +220,9 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng, remaining_budget)
             t_cost = edge[3]
-        
+        elif selector_method =='rbiased':
+            edge = random_valid_biased( G_max_red,G_min,rng, remaining_budget)
+            t_cost = edge[3]
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red, G_max_close=G_max_close)
         test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
@@ -276,17 +284,22 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             random_weight = make_random_weight_generator(seed=trial_seed)
             rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='random',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'random'})
+        if any(method in mh_methods for method in ["rbiased", "all"]):
+            print("running  random biased")     
+            random_weight = make_random_weight_generator(seed=trial_seed)
+            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='rbiased',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
+            res_list.append({**metadata, **rand_res, 'method':'biased_random'})   
         if any(method in mh_methods for method in ["lstd_prob", "all", "fast","probability"]):   
             print("running lstd probability")     
             #LSTD probability from Overcoming poor data quality
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_prob',seed=trial_seed, q_check_tl=q_check_tl)
             res_list.append({**metadata, **mhh_res, 'method':'lstd_prob'})
-        if any(method in mh_methods for method in ["lstd_ml", "all","probability", 'machineLearning']):   
+        if any(method in mh_methods for method in ["lstd_ml", "all", 'machineLearning']):   
             print("running lstd ml")     
             #LSTD probability from Overcoming poor data quality
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_ml',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config)
             res_list.append({**metadata, **mhh_res, 'method':'lstd_ml'})
-        if any(method in mh_methods for method in ["lstd_mh", "all","probability"]):   
+        if any(method in mh_methods for method in ["lstd_mh", "all"]):   
             print("running lstd mh with priority")     
             #LSTD probability from Overcoming poor data quality
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_mh',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config, **xp_config['priority'])

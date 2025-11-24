@@ -47,6 +47,18 @@ def rename_nodes_topological(G):
     return new_graph, old_to_new, new_to_old
 
 
+def get_possible_edges_biased(G_max_red, G_min, remaining_budget=1e6,edge_prob_bias = 0.5,ban_list = []):
+    G_min_close = nx.transitive_closure(G_min)
+    candidates = []
+    for u,v,data in  G_max_red.edges(data=True):
+        time = data['t_cost']
+        edge_prob = data['prob']
+        if not G_min_close.has_edge(u, v) and (u,v) not in ban_list and remaining_budget-time>=0  and edge_prob>edge_prob_bias:
+            candidates.append((u, v, data['prob'], time))
+    if len(candidates) == 0:
+        candidates= get_possible_edges(G_max_red, G_min, remaining_budget, ban_list)
+    return candidates
+
 def get_possible_edges(G_max_red, G_min, remaining_budget=1e6,ban_list = []):
     G_min_close = nx.transitive_closure(G_min)
     candidates = []

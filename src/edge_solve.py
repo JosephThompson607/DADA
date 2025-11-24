@@ -62,7 +62,7 @@ def make_missing_edge_df(bad_df, pkl_fp, path = ""):
 
     return reduced_edges
 
-def solve_edge_salbp1(edge_df_fp, df_idx,ex_fp, branch =1):
+def solve_edge_salbp1(edge_df_fp, df_idx,ex_fp, branch =1, time=3600):
     edge_df = pd.read_csv(edge_df_fp)
     edge = edge_df.iloc[df_idx]
     precedence_relations = [[int(x), int(y)] for x, y in ast.literal_eval(edge["precedence_relations"])]
@@ -85,7 +85,7 @@ def solve_edge_salbp1(edge_df_fp, df_idx,ex_fp, branch =1):
         if not pd.isna(edge['edge_idx']):
             SALBP_dict = precedence_removal(SALBP_dict, edge['edge_idx'])
         write_to_alb(SALBP_dict, temp_alb_path)
-        output = subprocess.run([ex_fp, "-m", f"{branch}", temp_alb_path], stdout=subprocess.PIPE)
+        output = subprocess.run([ex_fp, "-m", f"{branch}", "-t", f"{time}", temp_alb_path], stdout=subprocess.PIPE)
         # print("Return code:", output.returncode)
         # print("STDOUT:", output.stdout.decode())
         print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")

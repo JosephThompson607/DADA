@@ -94,7 +94,8 @@ def get_edge_neighbor_max_min_avg_std(G, key="task_time"):
             "combined": stats(weights),
             "edge_0_weight": G.nodes[edge[0]][key],
             "edge_1_weight": G.nodes[edge[1]][key],
-            "abs_node_weight_difference": abs(G.nodes[edge[0]][key]-G.nodes[edge[1]][key])
+            "abs_node_weight_difference": abs(G.nodes[edge[0]][key]-G.nodes[edge[1]][key]),
+            "node_weight_sum": G.nodes[edge[0]][key]+G.nodes[edge[1]][key]
         }
 
     return edge_neighbor_stats
@@ -261,7 +262,9 @@ def get_neighborhood_edge_stats(neighborhood_info):
                             'parent_avg': neighborhood_info['pred']['avg'], 
                             'parent_std': neighborhood_info['pred']['std'], 
                             'parent_weight': parent_weight,
-                            'child_weight': child_weight}
+                            'child_weight': child_weight,
+                            'abs_weight_difference': abs(parent_weight-child_weight),
+                            'weight_sum': parent_weight + child_weight}
     return neighborhood_dict
 
 
