@@ -67,26 +67,23 @@ def get_edge_neighbor_max_min_avg_std(G, key="task_time"):
     - combined neighbors (pred + succ)
     """
     edge_neighbor_stats = {}
-    
+    # Helper to compute stats safely
+    def stats(lst):
+        if lst:
+            return {
+                "max": max(lst),
+                "min": min(lst),
+                "avg": sum(lst)/len(lst),
+                "std": float(np.std(lst)),
+                "sum": sum(lst)
+            }
+        else:
+            return {"max": 0, "min": 0, "avg": 0, "std": 0, "sum":0}
     for edge in G.edges():
         # Get predecessor and successor weights
         pred_weights = [G.nodes[pred][key] for pred in G.predecessors(edge[0])]
         succ_weights = [G.nodes[succ][key] for succ in G.successors(edge[1])]
         weights = pred_weights + succ_weights
-
-        # Helper to compute stats safely
-        def stats(lst):
-            if lst:
-                return {
-                    "max": max(lst),
-                    "min": min(lst),
-                    "avg": sum(lst)/len(lst),
-                    "std": float(np.std(lst)),
-                    "sum": sum(lst)
-                }
-            else:
-                return {"max": 0, "min": 0, "avg": 0, "std": 0, "sum":0}
-
         # Build full dictionary for this edge
         edge_neighbor_stats[edge] = {
             "pred": stats(pred_weights),
@@ -138,6 +135,28 @@ def get_longest_chains_edges(G):
     return edge_list
 
 
+
+def precompute_chain_stats(longest_chains_to, longest_chains_from, edges):
+    """Precompute all chain stats at once using vectorization"""
+    chain_stats = {}
+    
+    for edge in edges:
+        parent_weights = longest_chains_to[edge[0]]['weights']
+        child_weights = longest_chains_from[edge[1]]['weights'][::-1]
+        
+        # Combine weights
+        combined = parent_weights + child_weights
+        
+        # Compute stats once using NumPy (much faster)
+        weights_arr = np.array(combined)
+        chain_stats[tuple(edge)] = {
+            'avg': weights_arr.mean(),
+            'min': weights_arr.min(),
+            'max': weights_arr.max(),
+            'std': weights_arr.std()
+        }
+    
+    return chain_stats
 def longest_weighted_chains(G):
     # Step 1: Get longest path to `node`
     longest_chains_to=  {str(n[0]):{'nodes': [n[0]], 'weights': [n[1]['task_time']]} for n in G.nodes(data=True)}
@@ -169,81 +188,6 @@ def get_longest_chain_for_edge(longest_chains_to, longest_chains_from, edge):
     return {'nodes': parent_chain['nodes'] + child_chain['nodes'][::-1], 'weights': parent_chain['weights'] + child_chain['weights'][::-1]}
 
 
-def get_edge_data(instance_name, alb):
-    '''Gets the data for all of the edges for a given alb instance'''
-    start_time = time.time()
-    edge_list = []
-    G = nx.DiGraph()
-    G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
-    G.add_edges_from(alb['precedence_relations'])
-    #adds task times as node attributes
-    nx.set_node_attributes(G, {i: {'task_time': alb['task_times'][str(i)]} for i in G.nodes})
-    positional_weights = get_all_positional_weight(G)
-    longest_chains_to, longest_chains_from = longest_weighted_chains(G)
-    edge_weights = get_edge_neighbor_max_min_avg_std(G)
-    walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
-    
-    for idx, edge in enumerate(alb['precedence_relations']):
-
-        neighborhood_info = edge_weights[tuple(edge)]
-
-        chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
-        chain_avg = np.mean(chain_info['weights'])
-        chain_min = np.min(chain_info['weights'])
-        chain_max = np.max(chain_info['weights'])
-        chain_std = np.std(chain_info['weights'])
-        parent_in_degree = G.in_degree(edge[0])
-        parent_out_degree = G.out_degree(edge[0])
-
-        parent_weight = neighborhood_info['edge_0_weight']
-        parent_stage = longest_chains_to[edge[0]]
-        parent_pos_weight = positional_weights[edge[0]]
-        #gets the row of the parent's walk data
-        parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
-        #drops node from parent_walk_data
-        parent_walk_data.drop('node', axis=1, inplace=True)
-        #converts parent_walk_data to a dictionary
-        parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
-        
-        child_weight = neighborhood_info['edge_1_weight']
-        child_stage = longest_chains_to[edge[0]]
-        child_in_degree = G.in_degree(edge[1])
-        child_out_degree = G.out_degree(edge[1])
-        #gets child walk data
-        child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
-        #drops node from parent_walk_data
-        child_walk_data.drop('node', axis=1, inplace=True)
-        #converts parent_walk_data to a dictionary
-        child_walk_data = child_walk_data.to_dict(orient='records')[0]
-        child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
-        child_pos_weight = positional_weights[edge[1]]
-        end_time = time.time() - start_time
-        edge_list.append({'instance': instance_name, 
-                            'edge': edge, 
-                            'idx': idx, 
-                            'parent_weight':parent_weight,
-                            'parent_pos_weight': parent_pos_weight,
-                            'parent_stage': parent_stage,
-                            'child_weight':child_weight, 
-                            'child_pos_weight': child_pos_weight, 
-                            'child_stage': child_stage,
-                            'stage_difference': parent_stage-child_stage,
-                            'neighborhood_min': neighborhood_info['min'], 
-                            'neighborhood_max': neighborhood_info['max'], 
-                            'neighborhood_avg': neighborhood_info['avg'], 
-                            'neighborhood_std': neighborhood_info['std'], 
-                            'parent_in_degree': parent_in_degree, 
-                            'parent_out_degree': parent_out_degree, 
-                            'child_in_degree': child_in_degree, 
-                            'child_out_degree': child_out_degree, 
-                            'chain_avg': chain_avg, 
-                            'chain_min': chain_min, 
-                            'chain_max': chain_max, 
-                            'chain_std': chain_std, 
-                            'edge_data_time':end_time, 
-                            **parent_walk_data, 
-                            **child_walk_data})
-    return edge_list
 
 def get_neighborhood_edge_stats(neighborhood_info):
     child_weight = neighborhood_info['edge_1_weight']
@@ -313,8 +257,10 @@ def get_combined_edge_and_graph_data(
     # ----------------- Longest chains -----------------
     t0 = time.time()
     longest_chains_to, longest_chains_from = longest_weighted_chains(G)
+    chain_stats = precompute_chain_stats(longest_chains_to, longest_chains_from, 
+                                     alb['precedence_relations'])
     timings['longest_chains'] = time.time() - t0
-
+    
     # ----------------- Edge neighbor stats -----------------
     t0 = time.time()
     edge_weights = get_edge_neighbor_max_min_avg_std(G)
@@ -335,6 +281,9 @@ def get_combined_edge_and_graph_data(
     # -------------------------------------------------------
     #                  Per-edge processing
     # -------------------------------------------------------
+    timings['t_neighborhood'] = 0
+    timings['chain'] = 0
+    timings['degree'] = 0
     for idx, edge in enumerate(alb['precedence_relations']):
         edge_start = time.time()
 
@@ -342,16 +291,16 @@ def get_combined_edge_and_graph_data(
         t0 = time.time()
         neighborhood_data = get_neighborhood_edge_stats(edge_weights[tuple(edge)])
         t_neighborhood = time.time() - t0
-
+        timings['t_neighborhood'] += t_neighborhood
         # Longest-chain features
         t0 = time.time()
-        chain_info = get_longest_chain_for_edge(longest_chains_to, longest_chains_from, edge)
-        chain_avg = np.mean(chain_info['weights'])
-        chain_min = np.min(chain_info['weights'])
-        chain_max = np.max(chain_info['weights'])
-        chain_std = np.std(chain_info['weights'])
+        stats = chain_stats[tuple(edge)]
+        chain_avg = stats['avg']
+        chain_min = stats['min']
+        chain_max = stats['max']
+        chain_std = stats['std']
         t_chain = time.time() - t0
-
+        timings['chain'] += t_chain
         # Degree + stage + positional weight
         t0 = time.time()
         parent_in_degree = G.in_degree(edge[0])
@@ -364,7 +313,7 @@ def get_combined_edge_and_graph_data(
         child_out_degree = G.out_degree(edge[1])
         child_pos_weight = positional_weights[edge[1]]
         t_degrees = time.time() - t0
-
+        timings['degree'] += t_degrees
         res_dict = {
             **graph_data, **neighborhood_data,
             'edge': edge,
@@ -414,7 +363,7 @@ def get_combined_edge_and_graph_data(
 
         edge_list.append(res_dict)
 
-    # Print summary timings
+    #Print summary timings
     # print("\n=== Timing Summary ===")
     # for k, v in timings.items():
     #     print(f"{k:25s}: {v:8.4f} sec")

@@ -173,13 +173,28 @@ def random_valid_biased(G_max_red, G_min,  rng, remaining_budget, edge_prob_bias
     edges = get_possible_edges_biased(G_max_red, G_min, remaining_budget=remaining_budget, edge_prob_bias=edge_prob_bias)
     return rng.choice(edges)
 
+def select_highest_combined_weight_edge(G_max_red, G_min,  rng, remaining_budget):
+    '''Selects an edge (u,v) that has the edge_prob*(highest task_time(u) + task_time(v))/t_Cost '''
+    edges = get_possible_edges(G_max_red, G_min, remaining_budget=remaining_budget)
+    rng.shuffle(edges)
+    max_weight = -float('inf')
+    selected_edge = None
+    for u, v, prob, t_cost in edges:
+        weight = prob* (G_max_red.nodes[u]['weight'] + G_max_red.nodes[v]['weight']) / t_cost
+        if weight > max_weight:
+            max_weight = weight
+            selected_edge = (u, v,prob, weight)
+    return selected_edge
 
-def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None,ml_config=None, seed=42,**mhkwargs):
+def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None,ml_config=None, seed=42,n_episodes=50,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
     G_max_close = G_max_close_orig.copy()
     G_max_red = nx.transitive_reduction(G_max_close)
+    #Keeps edge probability data
     G_max_red.add_edges_from((u, v, G_max_close.edges[u, v]) for u, v in G_max_red.edges)
+    #Adds task time to graph
+    nx.set_node_attributes(G_max_red, orig_salbp['task_times'], 'weight')
     order_strength = calculate_order_strength(G_max_red, G_max_close)
     test_salbp, new_to_old = set_new_edges(G_max_red, orig_salbp)
     orig_bbr = False
@@ -191,9 +206,9 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
     n_stations = orig_n_stations
     bin_limit = res['bin_lb']
     rng = random.Random(seed)    #rng for random edge selection
-    if selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
+    if selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml', 'lstd_weight'):
 
-        theta = train_lstd(orig_salbp, G_max_close,G_min, n_queries, mh, mode=selector_method,seed = seed,prev_val=n_stations,ml_model =ml_model, ml_config=ml_config, **mhkwargs)
+        theta = train_lstd(orig_salbp, G_max_close,G_min, n_queries, mh, mode=selector_method,seed = seed,prev_val=n_stations,ml_model =ml_model, ml_config=ml_config,n_episodes=n_episodes, **mhkwargs)
 
 
     #print(f"SALBP number of stations before : {orig_n_stations}, ellapsed time {time.time()- start}, bin lb {bin_limit} OS {order_strength}")
@@ -215,13 +230,16 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             edge, _, t_cost = beam_search_mh( orig_salbp, G_max_close,G_min, mh,remaining_budget, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
             edge_data = G_max_close[edge[0]][edge[1]] #Getting edge data
             edge = (edge[0], edge[1], edge_data['prob'], edge_data['t_cost'])
-        elif selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml'):
+        elif selector_method in ('lstd_prob', 'lstd_mh', 'lstd_ml', 'lstd_weight'):
             edge, _, t_cost = lstd_search(orig_salbp, G_max_close, G_min, mh,remaining_budget, theta,prev_val=n_stations, mode=selector_method, ml_config=ml_config, ml_model=ml_model,**new_kwargs )
         elif selector_method =='random':
             edge = random_valid( G_max_red,G_min,rng, remaining_budget)
             t_cost = edge[3]
         elif selector_method =='rbiased':
             edge = random_valid_biased( G_max_red,G_min,rng, remaining_budget)
+            t_cost = edge[3]
+        elif selector_method == 'weight_sum':
+            edge = select_highest_combined_weight_edge( G_max_red,G_min,rng, remaining_budget)
             t_cost = edge[3]
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red, G_max_close=G_max_close)
@@ -259,7 +277,7 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh, selector_meth
 
 
 
-def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}):
+def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}, n_episodes=50):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
     
     xp_config, ml_config, ml_model = load_and_backup_configs(xp_config_fp, backup_folder=save_folder)
@@ -284,26 +302,36 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             random_weight = make_random_weight_generator(seed=trial_seed)
             rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='random',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'random'})
-        if any(method in mh_methods for method in ["rbiased", "all"]):
+        if any(method in mh_methods for method in ["rbiased", "all", "fast"]):
             print("running  random biased")     
             random_weight = make_random_weight_generator(seed=trial_seed)
             rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='rbiased',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'biased_random'})   
-        if any(method in mh_methods for method in ["lstd_prob", "all", "fast","probability"]):   
+        if any(method in mh_methods for method in ["weight_sum", "all", "fast"]):
+            print("running sum of weights")     
+            random_weight = make_random_weight_generator(seed=trial_seed)
+            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='weight_sum',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
+            res_list.append({**metadata, **rand_res, 'method':'weight_sum'})   
+        if any(method in mh_methods for method in ["lstd_prob", "all", "fast","probability",'least_squares']):   
             print("running lstd probability")     
             #LSTD probability from Overcoming poor data quality
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_prob',seed=trial_seed, q_check_tl=q_check_tl)
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_prob',seed=trial_seed, q_check_tl=q_check_tl, n_episodes = n_episodes)
             res_list.append({**metadata, **mhh_res, 'method':'lstd_prob'})
-        if any(method in mh_methods for method in ["lstd_ml", "all", 'machineLearning']):   
+        if any(method in mh_methods for method in ["lstd_ml", "all", 'machineLearning', ]):   
             print("running lstd ml")     
             #LSTD probability from Overcoming poor data quality
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_ml',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config)
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='lstd_ml',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config, n_episodes = n_episodes)
             res_list.append({**metadata, **mhh_res, 'method':'lstd_ml'})
         if any(method in mh_methods for method in ["lstd_mh", "all"]):   
             print("running lstd mh with priority")     
             #LSTD probability from Overcoming poor data quality
-            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_mh',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config, **xp_config['priority'])
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_mh',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config,n_episodes = n_episodes, **xp_config['priority'])
             res_list.append({**metadata, **mhh_res, 'method':'lstd_mh_priority'})
+        if any(method in mh_methods for method in ["lstd_weight", "all",'least_squares']):   
+            print("running lstd mh using sum of task times")     
+            #LSTD probability from Overcoming poor data quality
+            mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_weight',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config,n_episodes = n_episodes, **xp_config['priority'])
+            res_list.append({**metadata, **mhh_res, 'method':'lstd_weight'})
         if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
             print("running hoffman")     
             # #hoffman
@@ -319,7 +347,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="beam_ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
 
-        if any(method in mh_methods for method in ["probability",'beam_prob', "all", "fast"]):  
+        if any(method in mh_methods for method in ["probability",'beam_prob', "all", ]):  
                 print("running probability")
                 #Prioriy
                 priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, constant_weight,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config)
@@ -441,6 +469,12 @@ def main():
         help="Number of initial sequences that start the precedence graph (default: %(default)s)"
     )
     parser.add_argument(
+        "--n_episodes",
+        type=int,
+        default=50,
+        help="Number of episodes for training lstd algo (default: %(default)s)"
+    )
+    parser.add_argument(
         "--start",
         type=int,
         default=0,
@@ -496,7 +530,8 @@ def main():
                                             beam_config, 
                                             args.base_seed,  
                                             args.q_check_tl,
-                                            edge_prob_data) for alb in alb_dicts])
+                                            edge_prob_data,
+                                            args.n_episodes) for alb in alb_dicts])
         #results = pool.map(test_func, range(5))
 
     

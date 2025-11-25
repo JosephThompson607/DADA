@@ -25,6 +25,7 @@ def get_station_assignment_stats(priority_sols, cycle_time):
         station_assignments = sol["station_assignments"]
 
         for idx, assignment in enumerate(station_assignments):
+
             load_ratio = station_loads[idx] / cycle_time
 
             for task in assignment:
@@ -132,7 +133,7 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_sta
         timings["task_load_stats"] = time.time() - t0
 
     # ---------------- Final timing report ----------------
-    total_time = time.time() - total_start
+    # total_time = time.time() - total_start
 
     # print("\n=== Priority Stats Profiling ===")
     # for k, v in timings.items():

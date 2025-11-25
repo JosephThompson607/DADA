@@ -1,39 +1,107 @@
 import pandas as pd
 import sys
+import time
 
 sys.path.append('src')
 from data_prep import albp_to_features
 import copy
-
-def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config,**_):
-    #Take task times form base salbp problem and use them with the new edges
+def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config, **_):
+    profile = {}
+    t_start = time.perf_counter()
+    
+    # Setup config
+    t0 = time.perf_counter()
     if 'n_edge_random' not in ml_config.keys():
         ml_config['n_edge_random'] = 0
     ml_feature_list = ml_config["features"]
+    profile['config_setup'] = time.perf_counter() - t0
+    
+    # Deep copy SALBP
+    t0 = time.perf_counter()
     test_salbp = copy.deepcopy(orig_salbp)
     test_salbp['precedence_relations'] = list(G_max_red.edges())
-    edge_features = albp_to_features(test_salbp,  salbp_type="salbp_1",G_max_red=G_max_red, G_max_close=G_max_close, cap_constraint = None, n_random=ml_config['n_random'], feature_types=set(ml_config['feature_types']), n_edge_random=ml_config['n_edge_random'])
+    profile['deepcopy_salbp'] = time.perf_counter() - t0
+    
+    # Generate features
+    t0 = time.perf_counter()
+    edge_features = albp_to_features(test_salbp, salbp_type="salbp_1", 
+                                     G_max_red=G_max_red, G_max_close=G_max_close, 
+                                     cap_constraint=None, n_random=ml_config['n_random'], 
+                                     feature_types=set(ml_config['feature_types']), 
+                                     n_edge_random=ml_config['n_edge_random'])
+    profile['albp_to_features'] = time.perf_counter() - t0
+    
+    # Extract features
+    t0 = time.perf_counter()
     edge_names = edge_features['edge']
-    edge_features 
     features = ml_feature_list
-
     X_all = edge_features[features]
+    profile['extract_features'] = time.perf_counter() - t0
+    
+    # ML prediction
+    t0 = time.perf_counter()
     y_prob = ml_model.predict_proba(X_all)[:, 1]
+    profile['ml_predict_proba'] = time.perf_counter() - t0
+    
+    # Create DataFrame
+    t0 = time.perf_counter()
     edge_prob_df = pd.DataFrame({
         'edge': edge_names,
         'pred_val_prob': y_prob
     })
-        # --- Add the existing 'prob' attribute from directed graph ---
+    profile['create_dataframe'] = time.perf_counter() - t0
+    
+    # Get edge attributes
+    t0 = time.perf_counter()
     def get_edge_attributes(edge):
-    # edge is assumed to be a tuple (u, v)
+        # edge is assumed to be a tuple (u, v)
         if edge in G_max_red.edges:
             prob = G_max_red.edges[edge].get('prob', 1)
-            t_cost = G_max_red.edges[edge].get('t_cost', 1)  # or whatever default you want
+            t_cost = G_max_red.edges[edge].get('t_cost', 1)
             return prob, t_cost
         else:
             return 1, 1  # default values
+    
     edge_prob_df[['precedent_prob', 't_cost']] = edge_prob_df['edge'].apply(get_edge_attributes).apply(pd.Series)
+    profile['get_edge_attributes'] = time.perf_counter() - t0
+    
+    profile['total'] = time.perf_counter() - t_start
+    
+    # Print profiling results
+    # print(f"\nProfiling predictor:")
+    # for key, val in profile.items():
+    #     print(f"  {key}: {val*1000:.3f} ms")
+    
     return edge_prob_df
+# def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config,**_):
+#     #Take task times form base salbp problem and use them with the new edges
+#     if 'n_edge_random' not in ml_config.keys():
+#         ml_config['n_edge_random'] = 0
+#     ml_feature_list = ml_config["features"]
+#     test_salbp = copy.deepcopy(orig_salbp)
+#     test_salbp['precedence_relations'] = list(G_max_red.edges())
+#     edge_features = albp_to_features(test_salbp,  salbp_type="salbp_1",G_max_red=G_max_red, G_max_close=G_max_close, cap_constraint = None, n_random=ml_config['n_random'], feature_types=set(ml_config['feature_types']), n_edge_random=ml_config['n_edge_random'])
+#     edge_names = edge_features['edge']
+#     edge_features 
+#     features = ml_feature_list
+
+#     X_all = edge_features[features]
+#     y_prob = ml_model.predict_proba(X_all)[:, 1]
+#     edge_prob_df = pd.DataFrame({
+#         'edge': edge_names,
+#         'pred_val_prob': y_prob
+#     })
+#         # --- Add the existing 'prob' attribute from directed graph ---
+#     def get_edge_attributes(edge):
+#     # edge is assumed to be a tuple (u, v)
+#         if edge in G_max_red.edges:
+#             prob = G_max_red.edges[edge].get('prob', 1)
+#             t_cost = G_max_red.edges[edge].get('t_cost', 1)  # or whatever default you want
+#             return prob, t_cost
+#         else:
+#             return 1, 1  # default values
+#     edge_prob_df[['precedent_prob', 't_cost']] = edge_prob_df['edge'].apply(get_edge_attributes).apply(pd.Series)
+#     return edge_prob_df
 
 
 # def select_best_edge(edge_prob_df, valid_edges):
