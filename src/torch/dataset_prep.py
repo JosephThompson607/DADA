@@ -89,8 +89,8 @@ def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels=[]
     # Fix: assign sorted result back to edges
     edges = [(int(a), int(b)) for (a, b) in instance['precedence_relations']]
     edges = sorted(edges) 
-    
-    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    torch_edges = [ (a-1, b-1) for (a,b) in edges] #0 based indexes
+    edge_index = torch.tensor(torch_edges, dtype=torch.long).t().contiguous()
     
     inst_df = res_feat_df[res_feat_df['instance'] == instance_name].copy()
     inst_df = inst_df[edge_level_features + edge_labels + ["edge"]]
