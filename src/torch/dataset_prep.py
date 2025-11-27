@@ -139,7 +139,7 @@ def merge_node_data(node_feat_df, salbp_inst, debugging=False):
     assert task_df["node"].nunique() == len(salbp_inst["task_times"].keys()), "Node mismatch!"
     assert task_df["node"].min() == 0 or task_df["node"].min() == 1, "Unexpected node numbering!"
     # Extract feature matrix (drop the node ID column)
-    x_cols = task_df.drop(columns=["node"]).columns
+    x_cols = list(task_df.drop(columns=["node"]).columns)
     x_values = task_df.drop(columns=["node"]).values
 
     # Convert to a PyTorch tensor (float type)
@@ -158,7 +158,7 @@ def generate_geo_ready(instance_pkl_fp, res_feat_fp, node_level_features, graph_
         obj_vals = res_feat_df[res_feat_df['instance'] == instance_name][graph_label_cols].iloc[0]
         graph_labels = torch.tensor(obj_vals.values, dtype=torch.float)
         instance_data.append({'instance':instance_name, 'edges': edge_index, 'edge_features':edge_features,'edge_label_values':edge_label_values, 'edge_labels':edge_labels,'features':x, 
-                              'graph_labels':graph_labels, 'x_cols':x_cols,'node_level_features':node_level_features,
+                              'graph_labels':graph_label_cols, 'graph_label_values':graph_labels, 'x_cols':x_cols,'node_level_features':node_level_features,
                               'graph_level_features':graph_level_features, 'edge_level_features':edge_level_features})
     return instance_data
 def main():

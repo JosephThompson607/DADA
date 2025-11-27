@@ -179,12 +179,14 @@ def select_highest_combined_weight_edge(G_max_red, G_min,  rng, remaining_budget
     rng.shuffle(edges)
     max_weight = -float('inf')
     selected_edge = None
+    
     for u, v, prob, t_cost in edges:
         weight = prob* (G_max_red.nodes[u]['weight'] + G_max_red.nodes[v]['weight']) / t_cost
+
         if weight > max_weight:
             max_weight = weight
-            selected_edge = (u, v,prob, weight)
-    return selected_edge
+            selected_edge = (u, v,prob, t_cost)
+    return selected_edge, max_weight
 
 def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None,ml_config=None, seed=42,n_episodes=50,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
@@ -239,7 +241,8 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             edge = random_valid_biased( G_max_red,G_min,rng, remaining_budget)
             t_cost = edge[3]
         elif selector_method == 'weight_sum':
-            edge = select_highest_combined_weight_edge( G_max_red,G_min,rng, remaining_budget)
+            edge, weight = select_highest_combined_weight_edge( G_max_red,G_min,rng, remaining_budget)
+            print('here is the edge', edge, ' weight ', weight)
             t_cost = edge[3]
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red, G_max_close=G_max_close)
