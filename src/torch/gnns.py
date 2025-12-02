@@ -272,7 +272,7 @@ class GraphClassifier3Layer(torch.nn.Module):
 
 class GraphGATClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6):
+    def __init__(self, in_channels, hidden_channels,out_channels, heads=4, dropout=0.6):
         super(GraphGATClassifier, self).__init__()
         self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
@@ -280,7 +280,7 @@ class GraphGATClassifier(torch.nn.Module):
         self.graph_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, 1)
+            torch.nn.Linear(hidden_channels, out_channels)
         )
     def forward(self, data, **data_kwargs):
         x = data.x

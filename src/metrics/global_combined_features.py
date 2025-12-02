@@ -67,7 +67,7 @@ def get_station_assignment_stats(priority_sols, cycle_time):
     return {"load_stats": result}
 
 
-def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_stats=True):
+def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_stats=True, return_assignments=False):
     total_start = time.time()
     timings = {}
 
@@ -131,6 +131,10 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_sta
         t0 = time.time()
         task_load_stats = get_station_assignment_stats(priority_sols, cycle_time=alb["cycle_time"]) 
         timings["task_load_stats"] = time.time() - t0
+        metrics = {**metrics, **task_load_stats}
+    if return_assignments:
+        station_assignments = [sol['station_assignments'] for sol in priority_sols]
+        metrics = {**metrics, **station_assignments}
 
     # ---------------- Final timing report ----------------
     # total_time = time.time() - total_start
@@ -143,8 +147,6 @@ def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_sta
     # print("================================\n")
 
     # ---------------- Return ----------------
-    if generate_task_load_stats:
-        return {**metrics, **task_load_stats}
     return metrics
 
 # def generate_priority_sol_stats_salbp1(alb, n_random=100, generate_task_load_stats=True):

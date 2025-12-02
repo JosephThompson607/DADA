@@ -6,12 +6,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
 import ast
+from multiprocessing import Pool
 
 # Assuming 'src' is in the same directory as your notebook
-src_path = os.path.abspath("../../src")
+src_path = os.path.abspath("src/")
 if src_path not in sys.path:
     sys.path.append(src_path)
-src_path = os.path.abspath("../../src/torch")
+src_path = os.path.abspath("src/torch")
 if src_path not in sys.path:
     sys.path.append(src_path)
 from alb_instance_compressor import *
@@ -148,7 +149,7 @@ def merge_node_data(node_feat_df, salbp_inst, debugging=False):
 
 
 def generate_geo_ready(instance_pkl_fp, res_feat_fp, node_level_features, graph_level_features, edge_level_features, graph_label_cols=['orig_n_stations'], edge_labels=[]):
-    alb_dicts = open_salbp_pickle(instance_pkl_fp)[:100]
+    alb_dicts = open_salbp_pickle(instance_pkl_fp)
     res_feat_df = pd.read_csv(res_feat_fp)
     node_feat_df = get_node_and_graph_feat(res_feat_df, node_level_features, graph_level_features, debug_time = False)
     instance_data = []
@@ -161,6 +162,28 @@ def generate_geo_ready(instance_pkl_fp, res_feat_fp, node_level_features, graph_
                               'graph_labels':graph_label_cols, 'graph_label_values':graph_labels, 'x_cols':x_cols,'node_level_features':node_level_features,
                               'graph_level_features':graph_level_features, 'edge_level_features':edge_level_features})
     return instance_data
+
+
+def process_one(args):
+    n, ds,node_level_feats,graph_level_feats,edge_level_feats = args
+
+    pereria_dataset_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
+    instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
+
+    geo_ready = generate_geo_ready(
+        instance_pkl_fp,
+        pereria_dataset_fp,
+        node_level_feats,
+        graph_level_feats,
+        edge_level_feats
+    )
+
+    out_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
+    with open(out_fp, "wb") as f:
+        pickle.dump(geo_ready, f)
+
+    return f"done {ds}_{n}"
+
 def main():
     all_features =  ['instance',
                         'priority_min_stations',
@@ -378,14 +401,16 @@ def main():
                         'stations_delta',
                         'weight_sum',]
 
-    n = 50
-    ds = "unstructured"
-    pereria_dataset_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
-    instance_pkl_fp = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
-    geo_ready = generate_geo_ready(instance_pkl_fp, pereria_dataset_fp, node_level_feats, graph_level_feats, edge_level_feats)
-    with open(f'/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl', 'wb') as f:
-        pickle.dump(geo_ready, f)
-    print("done")
+    # n_range = [50, 60, 90, 100]
+    # datasets = ["unstructured", "chains", "bottleneck"]
+    n_range = [70]
+    datasets = ["unstructured"]
+
+    args = [( n, ds,node_level_feats,graph_level_feats,edge_level_feats ) for n in n_range for ds in datasets]
+
+    with Pool() as pool:
+        for msg in pool.imap_unordered(process_one, args):
+            print(msg)
 if __name__ == "__main__":
     main()
 

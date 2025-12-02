@@ -372,88 +372,150 @@ def get_combined_edge_and_graph_data(
     # print("=======================\n")
 
     return edge_list
-# def get_combined_edge_and_graph_data(alb, graph_data, G_max_close=None, n_random_solves=0, feature_types={"all"}):
-#     '''Gets edge and graph data for an instance'''
-#     start_time = time.time()
-#     edge_list = []
-#     G = nx.DiGraph()
-#     G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
-#     G.add_edges_from(alb['precedence_relations'])
-#     #adds task times as node attributes
-#     nx.set_node_attributes(G, {i: {'task_time': alb['task_times'][str(i)]} for i in G.nodes})
-#     if G_max_close:
-#         nx.set_node_attributes(G_max_close, {i: {'task_time': alb['task_times'][str(i)]} for i in G_max_close.nodes})
-
-#     positional_weights = get_all_positional_weight(G, G_max_close=G_max_close)
-#     longest_chains_to, longest_chains_from = longest_weighted_chains(G)
-#     edge_weights = get_edge_neighbor_max_min_avg_std(G)
-#     if not feature_types.isdisjoint({'all', 'rw'}):
-#         walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
-#     if not feature_types.isdisjoint({'all', 'grapheval'}):
-#         load_stats = graph_data.pop('load_stats')
-#     for idx, edge in enumerate(alb['precedence_relations']):
-#         neighborhood_data = get_neighborhood_edge_stats(edge_weights[tuple(edge)])
-#         chain_info = get_longest_chain_for_edge( longest_chains_to, longest_chains_from,edge)
-#         chain_avg = np.mean(chain_info['weights'])
-#         chain_min = np.min(chain_info['weights'])
-#         chain_max = np.max(chain_info['weights'])
-#         chain_std = np.std(chain_info['weights'])
-#         parent_in_degree = G.in_degree(edge[0])
-#         parent_out_degree = G.out_degree(edge[0])
-#         parent_stage = len(longest_chains_to[edge[0]]['nodes'])
-#         parent_pos_weight = positional_weights[edge[0]]
-#         child_stage = len(longest_chains_to[edge[1]]['nodes'])
-#         child_in_degree = G.in_degree(edge[1])
-#         child_out_degree = G.out_degree(edge[1])
-#         child_pos_weight = positional_weights[edge[1]]
-#         end_time = time.time() - start_time
-#         res_dict = { **graph_data, **neighborhood_data,
-#                             'edge': edge, 
-#                             'idx': idx, 
-#                             'parent_pos_weight': parent_pos_weight,
-#                             'parent_stage': parent_stage,
-#                             'child_pos_weight': child_pos_weight, 
-#                             'child_stage': child_stage,
-#                             'stage_difference': child_stage-parent_stage,
-#                             'parent_in_degree': parent_in_degree, 
-#                             'parent_out_degree': parent_out_degree, 
-#                             'child_in_degree': child_in_degree, 
-#                             'child_out_degree': child_out_degree, 
-#                             'chain_avg': chain_avg, 
-#                             'chain_min': chain_min, 
-#                             'chain_max': chain_max, 
-#                             'chain_std': chain_std, 
-#                             'edge_data_time':end_time, }
-#         if not feature_types.isdisjoint({'all', 'grapheval'}):
-#             #Gets parent load data 
-#             parent_load_data = get_load_data(load_stats, edge[0], "load_parent_")
-#             child_load_data = get_load_data(load_stats, edge[1], "load_child_")
-#             res_dict = {**res_dict, **parent_load_data, **child_load_data}
-#         if not feature_types.isdisjoint({'all', 'rw'}):
-#             #gets the row of the parent's walk data
-#             parent_walk_data = walk_info[walk_info['node'] == edge[0]].copy()
-#             #drops node from parent_walk_data
-#             parent_walk_data.drop('node', axis=1, inplace=True)
-#             #converts parent_walk_data to a dictionary
-#             parent_walk_data = parent_walk_data.to_dict(orient='records')[0]
-#             #gets child walk data
-#             child_walk_data = walk_info[walk_info['node'] == edge[1]].copy()
-#             #drops node from parent_walk_data
-#             child_walk_data.drop('node', axis=1, inplace=True)
-#             #converts parent_walk_data to a dictionary
-#             child_walk_data = child_walk_data.to_dict(orient='records')[0]
-#             child_walk_data = {f'child_{key}': value for key, value in child_walk_data.items()}
-#             res_dict = {**res_dict, **parent_walk_data, **child_walk_data}
-#         if not feature_types.isdisjoint({'all', 'edgeeval'}):
-#             edge_solve_time = time.time()
-#             n_stations = priority_edge_solves(edge, alb, n_random_solves)
-#             stations_delta = graph_data['priority_min_stations'] - n_stations
-#             edge_solve_time = time.time() - edge_solve_time
-#             res_dict = {**res_dict,'stations_delta':stations_delta, 'edge_solve_time':edge_solve_time }
-#         edge_list.append(res_dict)
-#     return edge_list
 
 
+def get_combined_edge_and_graph_data_nn(
+    alb, graph_data, G_max_close=None, n_random_solves=0,
+    feature_types={"all"}
+):
+    """Gets edge and graph data for an instance  for use with neural net"""
+
+    total_start = time.time()
+
+    # --- Timing container ---
+    timings = {}
+
+    # ----------------- Graph setup -----------------
+    t0 = time.time()
+    edge_list = []
+    G = nx.DiGraph()
+    G.add_nodes_from([str(i) for i in range(1, alb['num_tasks'] + 1)])
+    G.add_edges_from(alb['precedence_relations'])
+    nx.set_node_attributes(G, {i: {'task_time': alb['task_times'][str(i)]} for i in G.nodes})
+
+    if G_max_close:
+        nx.set_node_attributes(G_max_close, {i: {'task_time': alb['task_times'][str(i)]} 
+                                             for i in G_max_close.nodes})
+    timings['graph_setup'] = time.time() - t0
+
+    # ----------------- Positional weights -----------------
+    t0 = time.time()
+    positional_weights = get_all_positional_weight(G, G_max_close=G_max_close)
+    timings['positional_weights'] = time.time() - t0
+
+    # ----------------- Longest chains -----------------
+    t0 = time.time()
+    longest_chains_to, longest_chains_from = longest_weighted_chains(G)
+    chain_stats = precompute_chain_stats(longest_chains_to, longest_chains_from, 
+                                     alb['precedence_relations'])
+    timings['longest_chains'] = time.time() - t0
+    
+    # ----------------- Edge neighbor stats -----------------
+    t0 = time.time()
+    edge_weights = get_edge_neighbor_max_min_avg_std(G)
+    timings['edge_weight_stats'] = time.time() - t0
+
+    # ----------------- Random walk stats -----------------
+    if not feature_types.isdisjoint({'all', 'rw'}):
+        t0 = time.time()
+        walk_info = generate_walk_stats_ALB(G, num_walks=5, walk_length=10)
+        timings['walk_stats'] = time.time() - t0
+
+    # ----------------- GraphEval: load stats -----------------
+    if not feature_types.isdisjoint({'all', 'grapheval'}):
+        t0 = time.time()
+        load_stats = graph_data.pop('load_stats')
+        timings['load_stats_extract'] = time.time() - t0
+
+    # -------------------------------------------------------
+    #                  Per-edge processing
+    # -------------------------------------------------------
+    timings['t_neighborhood'] = 0
+    timings['chain'] = 0
+    timings['degree'] = 0
+    node_dict = {}
+    for idx, edge in enumerate(alb['precedence_relations']):
+        parent_data = {} #Note that some of this data will be redundant
+        child_data = {}
+        edge_start = time.time()
+
+        # Neighborhood features
+        t0 = time.time()
+        neighborhood_data = get_neighborhood_edge_stats(edge_weights[tuple(edge)])
+        t_neighborhood = time.time() - t0
+        timings['t_neighborhood'] += t_neighborhood
+        # Longest-chain features
+        t0 = time.time()
+        stats = chain_stats[tuple(edge)]
+        chain_avg = stats['avg']
+        chain_min = stats['min']
+        chain_max = stats['max']
+        chain_std = stats['std']
+        t_chain = time.time() - t0
+        timings['chain'] += t_chain
+        # Degree + stage + positional weight
+        t0 = time.time()
+        
+        parent_data['in_degree']= G.in_degree(edge[0])
+        parent_data['out_degree']=G.out_degree(edge[0])
+        parent_data['stage'] = len(longest_chains_to[edge[0]]['nodes'])
+        parent_data['pos_weight'] = positional_weights[edge[0]]
+        child_data['child_in_degree'] = G.in_degree(edge[1])
+        child_data['child_out_degree'] = G.out_degree(edge[1])
+        child_data['child_stage'] = len(longest_chains_to[edge[1]]['nodes'])
+        child_data['pos_weight'] = positional_weights[edge[1]]
+        parent_data['weight']
+        t_degrees = time.time() - t0
+        timings['degree'] += t_degrees
+        res_dict = {
+            **graph_data, **neighborhood_data,
+            'edge': edge,
+            'idx': idx,
+            'chain_avg': chain_avg,
+            'chain_min': chain_min,
+            'chain_max': chain_max,
+            'chain_std': chain_std,
+            'edge_data_time': time.time() - edge_start
+        }
+
+        # ----------- GraphEval load data ----------
+        if not feature_types.isdisjoint({'all', 'grapheval'}):
+            t0 = time.time()
+            parent_load_data = get_load_data(load_stats, edge[0], "load_parent_")
+            child_load_data = get_load_data(load_stats, edge[1], "load_child_")
+            res_dict.update(parent_load_data)
+            res_dict.update(child_load_data)
+            res_dict['load_data_time'] = time.time() - t0
+
+        # ----------- Random walk features ----------
+        if not feature_types.isdisjoint({'all', 'rw'}):
+            t0 = time.time()
+            p = walk_info[walk_info['node'] == edge[0]].drop(columns=['node']).to_dict('records')[0]
+            c = walk_info[walk_info['node'] == edge[1]].drop(columns=['node']).to_dict('records')[0]
+            c = {f'child_{k}': v for k, v in c.items()}
+            res_dict.update(p)
+            res_dict.update(c)
+            res_dict['walk_data_time'] = time.time() - t0
+
+        # ----------- EdgeEval solve ----------
+        if not feature_types.isdisjoint({'all', 'edgeeval'}):
+            t0 = time.time()
+            n_stations = priority_edge_solves(edge, alb, n_random_solves)
+            stations_delta = graph_data['priority_min_stations'] - n_stations
+            res_dict['stations_delta'] = stations_delta
+            res_dict['edge_solve_time'] = time.time() - t0
+
+        edge_list.append(res_dict)
+
+    #Print summary timings
+    # print("\n=== Timing Summary ===")
+    # for k, v in timings.items():
+    #     print(f"{k:25s}: {v:8.4f} sec")
+
+    # print(f"total_runtime           : {time.time() - total_start:8.4f} sec")
+    # print("=======================\n")
+
+    return edge_list
 
 def randomized_kahns_algorithm(G, n_runs=10, weight_key='task_time', seed=None):
     ''' Runs n_runs of the randomized Kahns topological sort algorithm and returns them as a list. Naive implementation'''

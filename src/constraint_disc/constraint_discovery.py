@@ -18,7 +18,7 @@ from metrics.graph_features import calculate_order_strength
 from datetime import date
 from lstd import lstd_search, train_lstd
 from metrics.node_and_edge_features import randomized_kahns_algorithm
-
+from pathlib import Path
 from alb_instance_compressor import *
 from SALBP_solve import salbp1_bbr_call, salbp1_prioirity_solve, salbp1_vdls_dict, salbp1_hoff_solve, load_and_backup_configs
 build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-python_interface/'
@@ -188,6 +188,8 @@ def select_highest_combined_weight_edge(G_max_red, G_min,  rng, remaining_budget
             selected_edge = (u, v,prob, t_cost)
     return selected_edge, max_weight
 
+
+
 def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp, mh, q_check_tl=3, selector_method='beam_mh',ml_model = None,ml_config=None, seed=42,n_episodes=50,**mhkwargs):
     G_true = albp_to_nx(orig_salbp)
     start = time.time()
@@ -228,7 +230,7 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             edge_data = G_max_close[edge[0]][edge[1]] #Getting edge data
             edge = (edge[0], edge[1], edge_data['prob'], edge_data['t_cost'])
             #edge, probability = best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model, **new_kwargs )
-        elif selector_method in ('beam_mh', 'beam_prob'): 
+        elif selector_method in ('beam_mh', 'beam_prob', 'beam_weight'): 
             edge, _, t_cost = beam_search_mh( orig_salbp, G_max_close,G_min, mh,remaining_budget, init_sol=res,rng=rng, mode=selector_method, **new_kwargs)
             edge_data = G_max_close[edge[0]][edge[1]] #Getting edge data
             edge = (edge[0], edge[1], edge_data['prob'], edge_data['t_cost'])
@@ -280,11 +282,19 @@ def do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, mh, selector_meth
 
 
 
-def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}, n_episodes=50):
+def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_queries,n_start_sequences, xp_config_fp,beam_config, base_seed=None,  q_check_tl=3, edge_prob_data={}, n_episodes=50, results_folder=None):
     name = str(albp_problem['name']).split('/')[-1].split('.')[0]            
-    
+
+    if results_folder:
+        filepath = Path(f"{results_folder}/{name}.csv")
+        print('fp', str(filepath))
+        if filepath.is_file():
+            print(f"File exists: {str(filepath)}, skipping")
+            return
+        else:
+            print(f"running {name}, saving to {save_folder}/{name}.csv")
     xp_config, ml_config, ml_model = load_and_backup_configs(xp_config_fp, backup_folder=save_folder)
-        
+    
     res_list = []
     for attempt_ind in range(n_tries):
         #Sets a seed so that the different methods have the same seed for each attempt for comparability
@@ -310,6 +320,11 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             random_weight = make_random_weight_generator(seed=trial_seed)
             rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='rbiased',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
             res_list.append({**metadata, **rand_res, 'method':'biased_random'})   
+        if any(method in mh_methods for method in ["weight_beam", "beamsearch"]):
+            print("running weight beam search")     
+            random_weight = make_random_weight_generator(seed=trial_seed)
+            rand_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, random_weight,selector_method='beam_weight',seed=trial_seed, q_check_tl=q_check_tl, beam_config={"width":1, "depth":1}, )
+            res_list.append({**metadata, **rand_res, 'method':'weight_sum'}) 
         if any(method in mh_methods for method in ["weight_sum", "all", "fast"]):
             print("running sum of weights")     
             random_weight = make_random_weight_generator(seed=trial_seed)
@@ -335,18 +350,18 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             #LSTD probability from Overcoming poor data quality
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_weight',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config,n_episodes = n_episodes, **xp_config['priority'])
             res_list.append({**metadata, **mhh_res, 'method':'lstd_weight'})
-        if any(method in mh_methods for method in ["hoffman", "all", "fast"]):   
+        if any(method in mh_methods for method in ["hoffman", "all", "fast", "beambeamsearch"]):   
             print("running hoffman")     
             # #hoffman
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['hoff'])
             res_list.append({**metadata, **mhh_res, 'method':'hoffman'})
-        if any(method in mh_methods for method in ["priority", "all", "fast"]):  
+        if any(method in mh_methods for method in ["priority", "all", "fast", "beamsearch"]):  
             print("running priority")
             #Prioriy
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['priority'])
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
-        if any(method in mh_methods for method in ["beam_ml", "all", "fast", 'machineLearning']):  
+        if any(method in mh_methods for method in ["beam_ml", "all", "fast", 'machineLearning', "beamsearch"]):  
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="beam_ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
 
@@ -402,6 +417,13 @@ def main():
         type=str,
         required=True,
         help="Output folder to store results"
+    )
+    parser.add_argument(
+        "--results_folder",
+        type=str,
+        required=False,
+        default=None,
+        help="Folder to check and see if expirement arleady ran (default: %(default)s)"
     )
     parser.add_argument(
         "--xp_config_fp",
@@ -534,7 +556,8 @@ def main():
                                             args.base_seed,  
                                             args.q_check_tl,
                                             edge_prob_data,
-                                            args.n_episodes) for alb in alb_dicts])
+                                            args.n_episodes,
+                                            args.results_folder) for alb in alb_dicts])
         #results = pool.map(test_func, range(5))
 
     

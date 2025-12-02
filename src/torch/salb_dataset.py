@@ -284,7 +284,7 @@ class SALBPGNNDataset(InMemoryDataset):
         self.dataset_name = dataset_name
         
         super().__init__(root, transform, pre_transform)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[0], weights_only=False)
     
     @property
     def raw_file_names(self):
@@ -346,7 +346,7 @@ class SALBPGNNDataset(InMemoryDataset):
                 edge_cols = graph_data['edge_level_features']
             data = Data(
                 instance_name = instance_name,
-                x=x.T,
+                x=x,
                 x_cols = x_cols,
                 edge_index=edge_index,
                 y=y,
