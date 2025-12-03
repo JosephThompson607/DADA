@@ -350,7 +350,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             #LSTD probability from Overcoming poor data quality
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='lstd_weight',seed=trial_seed, q_check_tl=q_check_tl, ml_model=ml_model, ml_config=ml_config,n_episodes = n_episodes, **xp_config['priority'])
             res_list.append({**metadata, **mhh_res, 'method':'lstd_weight'})
-        if any(method in mh_methods for method in ["hoffman", "all", "fast", "beambeamsearch"]):   
+        if any(method in mh_methods for method in ["hoffman", "all", "fast", "beamsearch"]):   
             print("running hoffman")     
             # #hoffman
             mhh_res = do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_hoff_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['hoff'])

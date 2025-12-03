@@ -7,7 +7,7 @@ from alb_instance_compressor import open_salbp_pickle_as_dict, open_multi_pickle
 from tqdm import tqdm
 import pandas as pd
 from typing import List, Optional
-
+import numpy as np
 
 def get_x_feature_vector(salbp_inst, instance_df, debug_time = False):
         df = instance_df[[ "edge",  "avg_div_c", "child_in_degree", "random_max_gap", 
@@ -365,12 +365,12 @@ class SALBPGNNDataset(InMemoryDataset):
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
     
-    def select_features(self, selected_features: List[str]):
+    def select_features(self, selected_features_node: List[str], selected_features_edge: Optional[List[str]] = None):
         """
         Return a new dataset view with only selected features.
         
         Args:
-            selected_features: List of feature names to include
+            selected_features_node: List of feature names to include
             
         Returns:
             New dataset instance with sliced features
@@ -381,7 +381,8 @@ class SALBPGNNDataset(InMemoryDataset):
         # Create sliced version
         sliced_dataset = FeatureSlicedDataset(
             self, 
-            selected_features
+            selected_features_node,
+            selected_features_edge
         )
         
         return sliced_dataset
@@ -395,15 +396,22 @@ class FeatureSlicedDataset:
     def __init__(
         self, 
         parent_dataset: SALBPGNNDataset, 
-        selected_feature_names: List[str]
+        selected_features_node: List[str],
+        selected_features_edge: Optional[List[str]] = None,
     ):
         self.parent = parent_dataset
-        self.selected_feature_names = selected_feature_names
+        self.selected_features_node = selected_features_node
+        self.selected_features_edge = selected_features_edge
         #Get available features
         data_0 = self.parent[0].clone()
-        self.feature_names = data_0.x_cols
+        self.feature_names_edge = data_0.edge_cols
+        self.feature_names_node = data_0.x_cols
         #Get the indices of the selected features
-        self.selected_indices = [self.feature_names.index(name) for name in self.selected_feature_names]
+        self.selected_indices_edge = []
+        if selected_features_edge is not None:
+            self.selected_indices_edge = [self.feature_names_edge.index(name) for name in self.selected_features_edge]
+        
+        self.selected_indices_node = [self.feature_names_node.index(name) for name in self.selected_features_node]
     def __len__(self):
         return len(self.parent)
     
@@ -411,9 +419,14 @@ class FeatureSlicedDataset:
         """Get graph with sliced features."""
         
         data = self.parent[idx].clone()
-        data.x = data.x[:, self.selected_indices]
+        data.x = data.x[:, self.selected_indices_node]
+        data.x_cols =  self.selected_features_node
+        if len(self.selected_indices_edge)>0:
+            data.edge_cols = self.selected_features_edge
+            data.edge_attr = data.edge_attr[:, self.selected_indices_edge]
+
         return data
     
     def __repr__(self):
         return (f'{self.__class__.__name__}({len(self)}, '
-                f'features={self.selected_feature_names})')
+                f'features={self.selected_features_node})')
