@@ -84,7 +84,7 @@ def get_node_and_graph_feat(instance_df, node_level_features, graph_level_featur
         node_df = node_df.sort_values(["instance","node"]).reset_index(drop=True)
         return node_df
 
-def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels=[]):
+def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels):
     instance_name = str(instance['name']).split('/')[-1].split('.')[0]
     
     # Fix: assign sorted result back to edges
@@ -106,7 +106,7 @@ def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels=[]
     df_sorted = df_sorted.iloc[df_sorted['edge_tuple'].map(edge_to_idx).argsort()]
     df_sorted = df_sorted.drop(columns=['edge_tuple', 'edge'])  # Drop both helper columns
     
-    if len(edge_labels) > 0:
+    if edge_labels is not None:
         edge_label_tensor = torch.tensor(df_sorted[edge_labels].values, dtype=torch.float)  # Add .values
     else:
         edge_label_tensor = None
@@ -115,11 +115,11 @@ def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels=[]
     
     return edge_index, edge_features, edge_label_tensor
         
-def merge_node_data(node_feat_df, salbp_inst, debugging=False):
+def merge_node_data(node_feat_df, salbp_inst, instance_name, debugging=False):
     '''This takes the existing instance results and gets their data for an instance'''
   #Treat data for NN use
     # If nodes appear multiple times, aggregate (mean or other)
-    instance_name = str(salbp_inst['name']).split('/')[-1].split('.')[0]
+
     print('doing', instance_name)
     node_df = node_feat_df[node_feat_df['instance']== instance_name].copy()
     node_df.drop(columns=['instance'], inplace=True)
@@ -146,7 +146,7 @@ def merge_node_data(node_feat_df, salbp_inst, debugging=False):
 
     # Convert to a PyTorch tensor (float type)
     x = torch.tensor(x_values, dtype=torch.float)
-    return x,x_cols, instance_name
+    return x,x_cols
 
 def get_edge_and_node_data_nn(
     alb, graph_data, G_max_close=None, n_random_solves=0,
@@ -442,6 +442,8 @@ def edge_list_to_tensor(edge_data, edge_level_features, edge_label_df=None):
 
 
 
+
+
 def geo_from_albp_dict(alb_instance, x_features, edge_level_features, y_graph=None, graph_label_cols=None, edge_label_df = None, salbp_type="salbp_1", cap_constraint=None, G_max_red=None, G_max_close=None, n_random=100, n_edge_random=100, feature_types={"all"}, return_assignments = False):
     instance_name = str(alb_instance['name']).split('/')[-1].split('.')[0]
     graph_data, node_data, edge_data = albp_to_features_nn(alb_instance, salbp_type=salbp_type, cap_constraint=cap_constraint, G_max_red=G_max_red, G_max_close=G_max_close, n_random=n_random, n_edge_random=n_edge_random, feature_types=feature_types, return_assignments = return_assignments)
@@ -465,14 +467,28 @@ def geo_from_albp_dict(alb_instance, x_features, edge_level_features, y_graph=No
     return data
 
 
-def generate_geo_ready(instance_pkl_fp, res_feat_fp, node_level_features, graph_level_features, edge_level_features, graph_label_cols=['orig_n_stations'], edge_labels=[]):
-    alb_dicts = open_salbp_pickle(instance_pkl_fp)[:1]
-    res_feat_df = pd.read_csv(res_feat_fp)
+def generate_geo_ready(instance_pkl_fp, res_feat, node_level_features, graph_level_features, edge_level_features, graph_label_cols=['orig_n_stations'], edge_labels=[]):
+    alb_dicts = open_salbp_pickle(instance_pkl_fp)
+    if isinstance(res_feat, str):
+        res_feat_df = pd.read_csv(res_feat)
+    else:
+        res_feat_df = res_feat
     node_feat_df = get_node_and_graph_feat(res_feat_df, node_level_features, graph_level_features, debug_time = False)
     instance_data = []
     for instance in alb_dicts:
+        instance_name = str(instance['name']).split('/')[-1].split('.')[0]
+        
+        if res_feat_df[res_feat_df['instance']==instance_name].empty:
+            continue
+        elif len(edge_labels) > 0 and any(feat not in res_feat_df.columns for feat in edge_labels) :
+            print(f'ERROR: edge labels {edge_labels} not in dataframe')
+            return
+        else:
+            print(f'making data for {instance_name}')
+    
 
-        x,x_cols, instance_name =  merge_node_data(node_feat_df, instance, debugging=False)
+
+        x,x_cols =  merge_node_data(node_feat_df, instance, instance_name, debugging=False)
         edge_index, edge_features, edge_label_values = get_edge_features(res_feat_df,edge_level_features, instance, edge_labels=edge_labels)
         obj_vals = res_feat_df[res_feat_df['instance'] == instance_name][graph_label_cols].iloc[0]
         graph_labels = torch.tensor(obj_vals.values, dtype=torch.float)
@@ -503,6 +519,46 @@ def process_one(args):
 
     return f"done {ds}_{n}"
 
+
+
+def data_preprocessing_salbp1(df, s_orig_col = 's_orig' ):
+    # min_and_max = df.groupby('instance').agg({'no_stations': ['min']}).reset_index()
+    # min_and_max.columns = ['instance', 'min',]
+    # df = pd.merge(df, min_and_max, on='instance', how='left')
+    # print(df.columns)
+    df["n_edges"] = df["average_number_of_immediate_predecessors"] * df['n_edges']
+    df["n_edges"] = df["n_edges"].astype(int)
+    df['order_strength'] = df['order_strength'].astype(float)
+    df['min_less_max'] = df['min'] < df[s_orig_col]
+    df['bin_less_max'] = df['bin_lb'] < df[s_orig_col]
+    df['is_less_max'] = df['no_stations'] < df[s_orig_col]
+    df['is_less_max'] = df['is_less_max'].astype(int)
+    df['min_less_max'] = df['min_less_max'].astype(int)
+    df['orig_n_stations'] =df['s_orig']
+    df['n_stations'] = df['no_stations']
+    return df
+
+def process_one_edge_res(args):
+    n, ds,node_level_feats,graph_level_feats,edge_level_feats = args
+    edge_res_fp = f'/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_ml_ready.csv'
+    print(f"trying {edge_res_fp}")
+    instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
+    edge_res = pd.read_csv(edge_res_fp)
+    edge_res = data_preprocessing_salbp1(edge_res)
+    geo_ready = generate_geo_ready(
+        instance_pkl_fp,
+        edge_res,
+        node_level_feats,
+        graph_level_feats,
+        edge_level_feats,
+        edge_labels=['is_less_max', 'n_stations']
+    )
+    print("HERE IS geo ready", geo_ready)
+    out_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
+    with open(out_fp, "wb") as f:
+        pickle.dump(geo_ready, f)
+
+    return f"done {ds}_{n}"
 def main():
     neural_network_node_features =  [
                         'pos_weight',
@@ -740,16 +796,19 @@ def main():
                         'stations_delta',
                         'weight_sum',]
 
-    n_range = [70, 80, 125, 150]
+    #n_range = [70, 80, 125, 150]
+    n_range = [50, 60, 90, 100]
     datasets = ["unstructured", "chains", "bottleneck"]
-    #n_range = [50]
-    datasets = ["unstructured"]
+    # n_range = [50]
+    # datasets = ["unstructured"]
 
     args = [( n, ds,node_level_feats,graph_level_feats,edge_level_feats ) for n in n_range for ds in datasets]
-
     with Pool() as pool:
-        for msg in pool.imap_unordered(process_one, args):
+        for msg in pool.imap_unordered(process_one_edge_res, args):
             print(msg)
+    # with Pool() as pool:
+    #     for msg in pool.imap_unordered(process_one, args):
+    #         print(msg)
 if __name__ == "__main__":
     main()
 

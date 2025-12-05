@@ -5,6 +5,45 @@ from torch_geometric.nn import GCNConv, GATConv
 import torch.nn as nn
 from torch_geometric.nn import global_mean_pool
 
+class EdgeClassifier3Conv3Lin(torch.nn.Module):
+    '''Indicates if an edge has an impact on the SALBP lower bound'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None):
+        super(EdgeClassifier3Conv3Lin, self).__init__()
+        self.conv1 = GCNConv(in_channels, hidden_channels)
+        self.conv2 = GCNConv(hidden_channels, hidden_channels)
+        self.conv3 = GCNConv(hidden_channels, hidden_channels)
+        edge_input_dim = 2 * hidden_channels + edge_dim
+
+            
+        self.edge_mlp = torch.nn.Sequential(
+            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+        
+    def forward(self, data,**data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        # Node embedding
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv3(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        # Edge embedding - gather node features for each edge
+        parents, children = edge_index
+        edge_data = data.edge_attr
+        edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
+        
+        # Edge classification
+        return self.edge_mlp(edge_features)
+    
 class EdgeClassifier(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
     def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None):
@@ -15,7 +54,7 @@ class EdgeClassifier(torch.nn.Module):
 
             
         self.edge_mlp = torch.nn.Sequential(
-            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.Linear(edge_input_dim + edge_dim, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, out_channels)
         )
@@ -32,16 +71,17 @@ class EdgeClassifier(torch.nn.Module):
         x = F.dropout(x, p=0.5, training=self.training)
         # Edge embedding - gather node features for each edge
         parents, children = edge_index
-        edge_features = torch.cat([x[parents], x[children]], dim=1)
+        edge_data = data.edge_attr
+        edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
         
         # Edge classification
         return self.edge_mlp(edge_features)
     
     
-class EdgeClassifier_GAT(torch.nn.Module):
+class EdgeClassifierGAT(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
     def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
-        super(EdgeClassifier_GAT, self).__init__()
+        super(EdgeClassifierGAT, self).__init__()
         self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
                              concat=False, dropout=0.6)  # TODO

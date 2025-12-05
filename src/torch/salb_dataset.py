@@ -190,7 +190,7 @@ class EdgeClassificationDataset(InMemoryDataset):
 def create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name):
     with open(pkl_fp, 'rb') as f:
         data = pickle.load(f)    
-
+    
     #assuming datset has the name {name}_geo_ready.pkl
     salbp_ds = SALBPGNNDataset(root_fp, data,  dataset_name,)
     return salbp_ds
@@ -370,7 +370,8 @@ class SALBPGNNDataset(InMemoryDataset):
         Return a new dataset view with only selected features.
         
         Args:
-            selected_features_node: List of feature names to include
+            selected_features_node: List of feature names to include for edges and nodes.
+            Note: for edges, passing None will return all edge features, passing empty list returns no edge features
             
         Returns:
             New dataset instance with sliced features
@@ -408,7 +409,10 @@ class FeatureSlicedDataset:
         self.feature_names_node = data_0.x_cols
         #Get the indices of the selected features
         self.selected_indices_edge = []
+        print("This is selected features edge: ", selected_features_edge)
         if selected_features_edge is not None:
+            if len(selected_features_edge) == 0:
+                self.selected_indices_edge = [] #No edge features for the GCN, will run on node features only
             self.selected_indices_edge = [self.feature_names_edge.index(name) for name in self.selected_features_edge]
         
         self.selected_indices_node = [self.feature_names_node.index(name) for name in self.selected_features_node]
@@ -421,9 +425,9 @@ class FeatureSlicedDataset:
         data = self.parent[idx].clone()
         data.x = data.x[:, self.selected_indices_node]
         data.x_cols =  self.selected_features_node
-        if len(self.selected_indices_edge)>0:
-            data.edge_cols = self.selected_features_edge
-            data.edge_attr = data.edge_attr[:, self.selected_indices_edge]
+        if self.selected_features_edge is not None:
+                data.edge_cols = self.selected_features_edge
+                data.edge_attr = data.edge_attr[:, self.selected_indices_edge]
 
         return data
     
