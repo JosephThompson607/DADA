@@ -409,7 +409,6 @@ class FeatureSlicedDataset:
         self.feature_names_node = data_0.x_cols
         #Get the indices of the selected features
         self.selected_indices_edge = []
-        print("This is selected features edge: ", selected_features_edge)
         if selected_features_edge is not None:
             if len(selected_features_edge) == 0:
                 self.selected_indices_edge = [] #No edge features for the GCN, will run on node features only

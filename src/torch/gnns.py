@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv
+from torch_geometric.nn import GCNConv, GATConv, GATv2Conv
 import torch.nn as nn
 from torch_geometric.nn import global_mean_pool
 
@@ -79,171 +79,249 @@ class EdgeClassifier(torch.nn.Module):
     
     
 class EdgeClassifierGAT(torch.nn.Module):
-    '''Indicates if an edge has an impact on the SALBP lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
+    '''Indicates if an edge has an impact on the SALBP lower bound using GATv2'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None, heads=4):
         super(EdgeClassifierGAT, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
-                             concat=False, dropout=0.6)  # TODO
-        edge_input_dim = 2 * hidden_channels
+        
+        # 2. GATv2 Configuration
+        # Layer 1: Multi-head attention. Output dim becomes hidden_channels * heads
+        self.conv1 = GATv2Conv(in_channels, hidden_channels, heads=heads, 
+                               concat=True, edge_dim=edge_dim)
+        
+        # Layer 2: Project back to hidden_channels. 
+        # We set concat=False (averaging) to ensure output is exactly 'hidden_channels'
+        # Input dim must match Layer 1 output (hidden_channels * heads)
+        self.conv2 = GATv2Conv(hidden_channels * heads, hidden_channels, heads=1, 
+                               concat=False, edge_dim=edge_dim)
 
-            
+        edge_input_dim = 2 * hidden_channels+ (edge_dim if edge_dim is not None else 0)
+
+
+
         self.edge_mlp = torch.nn.Sequential(
             torch.nn.Linear(edge_input_dim, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, out_channels)
         )
         
-    def forward(self,data,**data_kwargs):
+    def forward(self, data, **data_kwargs):
         x = data.x
         edge_index = data.edge_index
-        # Node embedding
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv1(x, edge_index)
+        edge_attr = data.edge_attr # 4. Extract edge attributes early
+
+        #Part 1: GNN foward to node emeddings
+        x = self.conv1(x, edge_index, edge_attr=edge_attr)
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv2(x, edge_index)
         
-        # Edge embedding - gather node features for each edge
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        
+        #Part 2: FC for node to edge embeddings
         parents, children = edge_index
-        edge_features = torch.cat([x[parents], x[children]], dim=1)
+        
+        # Concatenate Source Node + Target Node + Edge Features
+        if edge_attr is not None:
+             edge_features = torch.cat([x[parents], x[children], edge_attr], dim=1)
+        else:
+             edge_features = torch.cat([x[parents], x[children]], dim=1)
+        
+        # Edge classification
+        return self.edge_mlp(edge_features)
+
+class EdgeClassifierGAT3Layer(torch.nn.Module):
+    '''Indicates if an edge has an impact on the SALBP lower bound using GATv2'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None, heads=4):
+        super(EdgeClassifierGAT3Layer, self).__init__()
+        
+        # 2. GATv2 Configuration
+        # Layer 1: Multi-head attention. Output dim becomes hidden_channels * heads
+        self.conv1 = GATv2Conv(in_channels, hidden_channels, heads=heads, 
+                               concat=True, edge_dim=edge_dim)
+        
+        self.conv2 = GATv2Conv(hidden_channels*heads, hidden_channels, heads=heads, 
+                               concat=True, edge_dim=edge_dim)
+        
+        # Layer 2: Project back to hidden_channels. 
+        # We set concat=False (averaging) to ensure output is exactly 'hidden_channels'
+        # Input dim must match Layer 1 output (hidden_channels * heads)
+        self.conv3= GATv2Conv(hidden_channels * heads, hidden_channels, heads=1, 
+                               concat=False, edge_dim=edge_dim)
+
+        edge_input_dim = 2 * hidden_channels+ (edge_dim if edge_dim is not None else 0)
+
+
+
+        self.edge_mlp = torch.nn.Sequential(
+            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+        
+    def forward(self, data, **data_kwargs):
+        #get node and edge attributes
+        x ,  edge_index,edge_attr  = data.x, data.edge_index,data.edge_attr
+       
+ 
+        #Part 1: GNN foward to node emeddings
+        x = self.conv1(x, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index,edge_attr= edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv3(x, edge_index, edge_attr= edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        
+        #Part 2: FC for node to edge embeddings
+        parents, children = edge_index
+        
+        # Concatenate Source Node + Target Node + Edge Features
+        if edge_attr is not None:
+             edge_features = torch.cat([x[parents], x[children], edge_attr], dim=1)
+        else:
+             edge_features = torch.cat([x[parents], x[children]], dim=1)
         
         # Edge classification
         return self.edge_mlp(edge_features)
     
-class EdgeClassifierGATStats(torch.nn.Module):
-    '''Indicates if an edge has an impact on the SALBP lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
-        super(EdgeClassifierGATStats, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
-                             concat=False, dropout=0.6)  # TODO
-        edge_input_dim = 2 * hidden_channels + 3 #The 3 is from the graph statistics we are calculating
-        self.edge_mlp = torch.nn.Sequential(
-            torch.nn.Linear(edge_input_dim, hidden_channels),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, out_channels)
-        )
+# class EdgeClassifierGATStats(torch.nn.Module):
+#     '''Indicates if an edge has an impact on the SALBP lower bound'''
+#     def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
+#         super(EdgeClassifierGATStats, self).__init__()
+#         self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
+#         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
+#                              concat=False, dropout=0.6)  # TODO
+#         edge_input_dim = 2 * hidden_channels + 3 #The 3 is from the graph statistics we are calculating
+#         self.edge_mlp = torch.nn.Sequential(
+#             torch.nn.Linear(edge_input_dim, hidden_channels),
+#             torch.nn.ReLU(),
+#             torch.nn.Linear(hidden_channels, out_channels)
+#         )
         
-    def forward(self, data,**data_kwargs):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        # Apply GAT convolutions to get node embeddings
-        x = F.dropout(x, p=0.6, training=self.training)
-        x = F.elu(self.conv1(x, edge_index))
-        x = F.dropout(x, p=0.6, training=self.training)
-        node_embeddings = self.conv2(x, edge_index)
+#     def forward(self, data,**data_kwargs):
+#         x, edge_index, batch = data.x, data.edge_index, data.batch
+#         # Apply GAT convolutions to get node embeddings
+#         x = F.dropout(x, p=0.6, training=self.training)
+#         x = F.elu(self.conv1(x, edge_index))
+#         x = F.dropout(x, p=0.6, training=self.training)
+#         node_embeddings = self.conv2(x, edge_index)
         
-        # Calculate graph statistics from original node features
-        # Assuming x[:, 0] contains the x-values
-        x_values = x[:, 0]
+#         # Calculate graph statistics from original node features
+#         # Assuming x[:, 0] contains the x-values
+#         x_values = x[:, 0]
         
-        # If batch information is not provided, assume single graph
-        if batch is None:
-            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+#         # If batch information is not provided, assume single graph
+#         if batch is None:
+#             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
         
-        stats_tensor = torch.stack(
-            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-            dim=0
-        ).to(x.device)
-        # # Calculate per-graph statistics
-        # mean_x = scatter(x_values, batch, dim=0, reduce="mean")
-        # # For std, we need to calculate variance first and then sqrt
-        # var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
-        # std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
-        # min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
-        # max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
+#         stats_tensor = torch.stack(
+#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
+#             dim=0
+#         ).to(x.device)
+#         # # Calculate per-graph statistics
+#         # mean_x = scatter(x_values, batch, dim=0, reduce="mean")
+#         # # For std, we need to calculate variance first and then sqrt
+#         # var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
+#         # std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
+#         # min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
+#         # max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
         
-        # For each edge, get source and target node embeddings
-        row, col = edge_index
-        edge_features = torch.cat([node_embeddings[row], node_embeddings[col]], dim=1)
+#         # For each edge, get source and target node embeddings
+#         row, col = edge_index
+#         edge_features = torch.cat([node_embeddings[row], node_embeddings[col]], dim=1)
         
-        # Add per-graph statistics to each edge feature
-        # Determine which graph each edge belongs to
-        # edge_batch = batch[row]  # Using the source node's batch assignment
+#         # Add per-graph statistics to each edge feature
+#         # Determine which graph each edge belongs to
+#         # edge_batch = batch[row]  # Using the source node's batch assignment
         
-        # Create tensor to hold graph stats for each edge
-        # graph_stats = torch.cat([
-        #     mean_x[edge_batch].unsqueeze(1),
-        #     std_x[edge_batch].unsqueeze(1),
-        #     min_x[edge_batch].unsqueeze(1),
-        #     max_x[edge_batch].unsqueeze(1)
-        # ], dim=1)
+#         # Create tensor to hold graph stats for each edge
+#         # graph_stats = torch.cat([
+#         #     mean_x[edge_batch].unsqueeze(1),
+#         #     std_x[edge_batch].unsqueeze(1),
+#         #     min_x[edge_batch].unsqueeze(1),
+#         #     max_x[edge_batch].unsqueeze(1)
+#         # ], dim=1)
         
-        # Concatenate edge features with graph statistics
-        edge_features = torch.cat([edge_features, stats_tensor], dim=1)
+#         # Concatenate edge features with graph statistics
+#         edge_features = torch.cat([edge_features, stats_tensor], dim=1)
         
-        # Pass through edge MLP for classification
-        edge_pred = self.edge_mlp(edge_features)
+#         # Pass through edge MLP for classification
+#         edge_pred = self.edge_mlp(edge_features)
         
-        return edge_pred
+#         return edge_pred
     
 
-class EdgeClassifierGATStats3Layer(torch.nn.Module):
-    '''Indicates if an edge has an impact on the SALBP lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
-        super(EdgeClassifierGATStats, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
-        self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
-                             concat=False, dropout=0.6)  # TODO
-        self.conv3 = GATConv(hidden_channels * heads, hidden_channels,dropout=0.6)  # TODO
-        edge_input_dim = 2 * hidden_channels + 3 #The 3 is from the graph statistics we are calculating
-        self.edge_mlp = torch.nn.Sequential(
-            torch.nn.Linear(edge_input_dim, hidden_channels),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, out_channels)
-        )
+# class EdgeClassifierGATStats3Layer(torch.nn.Module):
+#     '''Indicates if an edge has an impact on the SALBP lower bound'''
+#     def __init__(self, in_channels, hidden_channels, out_channels, heads=4):
+#         super(EdgeClassifierGATStats, self).__init__()
+#         self.conv1 = GATConv(in_channels, hidden_channels, heads, dropout=0.6)  # TODO
+#         self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads=1,
+#                              concat=False, dropout=0.6)  # TODO
+#         self.conv3 = GATConv(hidden_channels * heads, hidden_channels,dropout=0.6)  # TODO
+#         edge_input_dim = 2 * hidden_channels + 3 #The 3 is from the graph statistics we are calculating
+#         self.edge_mlp = torch.nn.Sequential(
+#             torch.nn.Linear(edge_input_dim, hidden_channels),
+#             torch.nn.ReLU(),
+#             torch.nn.Linear(hidden_channels, out_channels)
+#         )
         
-    def forward(self, data,**data_kwargs):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        # Apply GAT convolutions to get node embeddings
-        x = F.dropout(x, p=0.6, training=self.training)
-        x = F.elu(self.conv1(x, edge_index))
-        x = F.dropout(x, p=0.6, training=self.training)
-        node_embeddings = self.conv2(x, edge_index)
+#     def forward(self, data,**data_kwargs):
+#         x, edge_index, batch = data.x, data.edge_index, data.batch
+#         # Apply GAT convolutions to get node embeddings
+#         x = F.dropout(x, p=0.6, training=self.training)
+#         x = F.elu(self.conv1(x, edge_index))
+#         x = F.dropout(x, p=0.6, training=self.training)
+#         node_embeddings = self.conv2(x, edge_index)
         
-        # Calculate graph statistics from original node features
-        # Assuming x[:, 0] contains the x-values
-        x_values = x[:, 0]
+#         # Calculate graph statistics from original node features
+#         # Assuming x[:, 0] contains the x-values
+#         x_values = x[:, 0]
         
-        # If batch information is not provided, assume single graph
-        if batch is None:
-            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+#         # If batch information is not provided, assume single graph
+#         if batch is None:
+#             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
         
-        stats_tensor = torch.stack(
-            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-            dim=0
-        ).to(x.device)
-        # # Calculate per-graph statistics
-        # mean_x = scatter(x_values, batch, dim=0, reduce="mean")
-        # # For std, we need to calculate variance first and then sqrt
-        # var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
-        # std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
-        # min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
-        # max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
+#         stats_tensor = torch.stack(
+#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
+#             dim=0
+#         ).to(x.device)
+#         # # Calculate per-graph statistics
+#         # mean_x = scatter(x_values, batch, dim=0, reduce="mean")
+#         # # For std, we need to calculate variance first and then sqrt
+#         # var_x = scatter((x_values - mean_x[batch])**2, batch, dim=0, reduce="mean")
+#         # std_x = torch.sqrt(var_x + 1e-8)  # Adding small epsilon for numerical stability
+#         # min_x = scatter(x_values, batch, dim=0, reduce="min")[0]
+#         # max_x = scatter_max(x_values, batch, dim=0, reduce="max")[0]
         
-        # For each edge, get source and target node embeddings
-        row, col = edge_index
-        edge_features = torch.cat([node_embeddings[row], node_embeddings[col]], dim=1)
+#         # For each edge, get source and target node embeddings
+#         row, col = edge_index
+#         edge_features = torch.cat([node_embeddings[row], node_embeddings[col]], dim=1)
         
-        # Add per-graph statistics to each edge feature
-        # Determine which graph each edge belongs to
-        # edge_batch = batch[row]  # Using the source node's batch assignment
+#         # Add per-graph statistics to each edge feature
+#         # Determine which graph each edge belongs to
+#         # edge_batch = batch[row]  # Using the source node's batch assignment
         
-        # Create tensor to hold graph stats for each edge
-        # graph_stats = torch.cat([
-        #     mean_x[edge_batch].unsqueeze(1),
-        #     std_x[edge_batch].unsqueeze(1),
-        #     min_x[edge_batch].unsqueeze(1),
-        #     max_x[edge_batch].unsqueeze(1)
-        # ], dim=1)
+#         # Create tensor to hold graph stats for each edge
+#         # graph_stats = torch.cat([
+#         #     mean_x[edge_batch].unsqueeze(1),
+#         #     std_x[edge_batch].unsqueeze(1),
+#         #     min_x[edge_batch].unsqueeze(1),
+#         #     max_x[edge_batch].unsqueeze(1)
+#         # ], dim=1)
         
-        # Concatenate edge features with graph statistics
-        edge_features = torch.cat([edge_features, stats_tensor], dim=1)
+#         # Concatenate edge features with graph statistics
+#         edge_features = torch.cat([edge_features, stats_tensor], dim=1)
         
-        # Pass through edge MLP for classification
-        edge_pred = self.edge_mlp(edge_features)
+#         # Pass through edge MLP for classification
+#         edge_pred = self.edge_mlp(edge_features)
         
-        return edge_pred
+#         return edge_pred
     
 class GraphClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
@@ -276,7 +354,7 @@ class GraphClassifier(torch.nn.Module):
 
 class GraphClassifier3Layer(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels):
+    def __init__(self, in_channels, hidden_channels, out_channels):
         super(GraphClassifier3Layer, self).__init__()
         self.conv1 = GCNConv(in_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
@@ -284,11 +362,10 @@ class GraphClassifier3Layer(torch.nn.Module):
         self.graph_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, 1)
+            torch.nn.Linear(hidden_channels, out_channels)
         )
     def forward(self, data,**data_kwargs):
-        x = data.x
-        edge_index = data.edge_index
+        x ,  edge_index= data.x, data.edge_index
         batch = data.batch
         # Node embedding
         x = self.conv1(x, edge_index)
@@ -308,31 +385,63 @@ class GraphClassifier3Layer(torch.nn.Module):
         return x
     
 
-
-
 class GraphGATClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels,out_channels, heads=4, dropout=0.6):
+    def __init__(self, in_channels, hidden_channels,out_channels,edge_dim=None, heads=4, dropout=0.6):
         super(GraphGATClassifier, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
-                             concat=False, dropout=dropout)  # TODO
+        self.conv1 = GATConv(in_channels, hidden_channels, heads ,edge_dim=edge_dim, dropout=dropout)  
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, edge_dim=edge_dim,
+                             concat=False, dropout=dropout)
         self.graph_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_channels, out_channels)
         )
     def forward(self, data, **data_kwargs):
-        x = data.x
-        edge_index = data.edge_index
+        x ,  edge_index,edge_attr  = data.x, data.edge_index,data.edge_attr
         batch = data.batch
         # Node embedding
-        x = self.conv1(x, edge_index)
+        x = self.conv1(x, edge_index, edge_attr=edge_attr)
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv2(x, edge_index)
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
 
+        # 3. Apply a final classifier
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.graph_mlp(x)
+        
+
+        return x
+
+
+class GraphGATClassifier3Layer(torch.nn.Module):
+    '''Indicates if graph has an edge that impacts the lower bound'''
+    def __init__(self, in_channels, hidden_channels,out_channels,edge_dim=None, heads=4, dropout=0.6):
+        super(GraphGATClassifier3Layer, self).__init__()
+        self.conv1 = GATConv(in_channels, hidden_channels, heads ,edge_dim=edge_dim, dropout=dropout)  
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads ,edge_dim=edge_dim, dropout=dropout)  
+        self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads, edge_dim=edge_dim,
+                             concat=False, dropout=dropout)
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+    def forward(self, data, **data_kwargs):
+        x ,  edge_index,edge_attr  = data.x, data.edge_index,data.edge_attr
+        batch = data.batch
+        # Node embedding
+        x = self.conv1(x, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv3(x, edge_index, edge_attr=edge_attr)
+        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
         # 3. Apply a final classifier
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.graph_mlp(x)
@@ -343,77 +452,77 @@ class GraphGATClassifier(torch.nn.Module):
 
 
 
-class GraphGATClassifierStats(torch.nn.Module):
-    '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
-        super(GraphGATClassifierStats, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
-                             concat=False, dropout=dropout)  # TODO
-        self.graph_mlp = torch.nn.Sequential(
-            torch.nn.Linear(hidden_channels + n_features, hidden_channels),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, 1)
-        )
-    def forward(self, data, **data_kwargs):
-        x = data.x
-        edge_index = data.edge_index
-        batch = data.batch
-        stats_tensor = torch.stack(
-            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-            dim=0
-        ).to(x.device)
-        # Node embedding
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+# class GraphGATClassifierStats(torch.nn.Module):
+#     '''Indicates if graph has an edge that impacts the lower bound'''
+#     def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
+#         super(GraphGATClassifierStats, self).__init__()
+#         self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
+#         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
+#                              concat=False, dropout=dropout)  # TODO
+#         self.graph_mlp = torch.nn.Sequential(
+#             torch.nn.Linear(hidden_channels + n_features, hidden_channels),
+#             torch.nn.ReLU(),
+#             torch.nn.Linear(hidden_channels, 1)
+#         )
+#     def forward(self, data, **data_kwargs):
+#         x = data.x
+#         edge_index = data.edge_index
+#         batch = data.batch
+#         stats_tensor = torch.stack(
+#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
+#             dim=0
+#         ).to(x.device)
+#         # Node embedding
+#         x = self.conv1(x, edge_index)
+#         x = F.relu(x)
+#         x = F.dropout(x, p=0.5, training=self.training)
+#         x = self.conv2(x, edge_index)
+#         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
 
-        # 3. Apply a final classifier
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = torch.cat([x, stats_tensor], dim=1)
-        x = self.graph_mlp(x)
+#         # 3. Apply a final classifier
+#         x = F.dropout(x, p=0.5, training=self.training)
+#         x = torch.cat([x, stats_tensor], dim=1)
+#         x = self.graph_mlp(x)
         
 
-        return x
+#         return x
     
 
-class GraphGATClassifierStats3Layer(torch.nn.Module):
-    '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
-        super(GraphGATClassifierStats3Layer, self).__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, dropout=dropout)  
-        self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads,
-                             concat=False, dropout=dropout)  
-        self.graph_mlp = torch.nn.Sequential(
-            torch.nn.Linear(hidden_channels + n_features, hidden_channels),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_channels, 1)
-        )
-    def forward(self, data, **data_kwargs):
-        x = data.x
-        edge_index = data.edge_index
-        batch = data.batch
-        stats_tensor = torch.stack(
-            [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-            dim=0
-        ).to(x.device)
-        # Node embedding
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = self.conv3(x, edge_index)
-        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+# class GraphGATClassifierStats3Layer(torch.nn.Module):
+#     '''Indicates if graph has an edge that impacts the lower bound'''
+#     def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
+#         super(GraphGATClassifierStats3Layer, self).__init__()
+#         self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  
+#         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, dropout=dropout)  
+#         self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads,
+#                              concat=False, dropout=dropout)  
+#         self.graph_mlp = torch.nn.Sequential(
+#             torch.nn.Linear(hidden_channels + n_features, hidden_channels),
+#             torch.nn.ReLU(),
+#             torch.nn.Linear(hidden_channels, 1)
+#         )
+#     def forward(self, data, **data_kwargs):
+#         x = data.x
+#         edge_index = data.edge_index
+#         batch = data.batch
+#         stats_tensor = torch.stack(
+#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
+#             dim=0
+#         ).to(x.device)
+#         # Node embedding
+#         x = self.conv1(x, edge_index)
+#         x = F.relu(x)
+#         x = F.dropout(x, p=0.5, training=self.training)
+#         x = self.conv2(x, edge_index)
+#         x = F.relu(x)
+#         x = F.dropout(x, p=0.5, training=self.training)
+#         x = self.conv3(x, edge_index)
+#         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
 
-        # 3. Apply a final classifier
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = torch.cat([x, stats_tensor], dim=1)
-        x = self.graph_mlp(x)
+#         # 3. Apply a final classifier
+#         x = F.dropout(x, p=0.5, training=self.training)
+#         x = torch.cat([x, stats_tensor], dim=1)
+#         x = self.graph_mlp(x)
         
 
-        return x
+#         return x

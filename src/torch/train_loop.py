@@ -10,6 +10,8 @@ import graphviz
 import torch_geometric
 import sys
 import os
+import shutil
+from types import SimpleNamespace
 src_path = os.path.abspath("src")
 if src_path not in sys.path:
     sys.path.append(src_path)
@@ -77,9 +79,7 @@ def train_with_checkpoints(
         dict with 'train_losses' and 'test_losses'
     """
     # Create checkpoint directory
-    today = datetime.today().strftime("%Y-%m-%d")
-    checkpoint_dir += today
-    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+
     
     train_losses = []
     test_losses = []
@@ -173,6 +173,7 @@ def do_datasets(node_feature_list = [], edge_feature_list = []):
     #n_range =  [50,]
     datasets = ['unstructured', 'chains', 'bottleneck']
     ds_list = []
+    print(f"In do datatsets, selecting {node_feature_list} \n\n {edge_feature_list}")
     for n in n_range:
         for ds in datasets:
             print(f"processing{n}_{ds}")
@@ -193,6 +194,8 @@ def do_datasets(node_feature_list = [], edge_feature_list = []):
 def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,node_features = [],edge_features=[]):
     my_dataset = do_datasets(node_features, edge_features)
     in_channels = my_dataset[0].x.size()[1] # Assuming a single feature per node.
+    edge_channels = my_dataset[0].edge_attr.size()[1]
+
     out_channels = 1 
     #splits the data into train and test
     transform = NormalizeFeatures()
@@ -206,13 +209,19 @@ def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size,
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device, " Setting model: ", model)
     if model == "GAT":
-        model = GraphGATClassifier(in_channels, hidden_channels, out_channels, heads=heads).to(device)
+        model =  GraphGATClassifier(in_channels, hidden_channels, out_channels, edge_dim=edge_channels, heads=heads).to(device)
+    if model == "GAT3":
+        model =  GraphGATClassifier3Layer(in_channels, hidden_channels, out_channels, edge_dim=edge_channels,heads=heads).to(device)
     elif model == "GCN":
         model = GraphClassifier(in_channels, hidden_channels, out_channels).to(device)
-        
+    elif model == "GCN3":
+        model = GraphClassifier3Layer(in_channels, hidden_channels, out_channels).to(device)
+
+    else:
+        print(f"Error: GNN Architecture '{model}' does not exist.")
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     loss_fn = nn.MSELoss()
-    train_with_checkpoints(
+    losses_dict = train_with_checkpoints(
     model,
     train_loader,
     test_loader,
@@ -224,6 +233,7 @@ def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size,
     save_every=save_every,
     save_best=True
 )
+    return losses_dict
 
 def do_datasets_classifier(node_feature_list = [], edge_feature_list = []):
     n_range =  [50,60,90, 100]
@@ -231,6 +241,7 @@ def do_datasets_classifier(node_feature_list = [], edge_feature_list = []):
     datasets = ['unstructured', 'chains', 'bottleneck']
     #datasets = ['unstructured']
     ds_list = []
+    print(f"In do datatsets, selecting {node_feature_list} \n\n  edge features: {edge_feature_list}")
     for n in n_range:
         for ds in datasets:
             print(f"processing{n}_{ds}")
@@ -244,6 +255,7 @@ def do_datasets_classifier(node_feature_list = [], edge_feature_list = []):
             else:
                 ds_list.append(unstructured)
     my_dataset = ConcatDataset(ds_list)
+    print("DATASET SHAPES", my_dataset[0])
     return my_dataset
 
 def get_pos_weight(data_list):
@@ -260,8 +272,10 @@ def get_pos_weight(data_list):
     return pos_weight
 
 def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,node_features = [],edge_features=[]):
+    print("Node features, ", node_features, "\nedge_features", edge_features)
     my_dataset = do_datasets_classifier(node_features, edge_features)
     print("size of datset: ", len(my_dataset))
+    
     in_channels = my_dataset[0].x.size()[1] 
     edge_channels = my_dataset[0].edge_attr.size()[1]
     out_channels = 1 
@@ -277,21 +291,24 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device, " Setting model: ", model)
     if model == "GAT":
-        model = EdgeClassifierGAT(in_channels, hidden_channels, out_channels, heads=heads).to(device)
+        model = EdgeClassifierGAT(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
+    if model == "GAT3":
+        model = EdgeClassifierGAT3Layer(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
     elif model == "GCN":
         print("using GCN with 2 conv, 2 fully connected layers")
         model = EdgeClassifier(in_channels, hidden_channels, out_channels, edge_dim=edge_channels).to(device)
     elif model == "GCN3":
         print("using GCN with 3 conv, 3 fully connected layers")
         model = EdgeClassifier3Conv3Lin(in_channels, hidden_channels, out_channels, edge_dim=edge_channels).to(device)
-    
+    else:
+        print(f"Error: GNN Architecture '{model}' does not exist.")
     
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     #Setting up classifier for imbalanced training set
     pos_weight = get_pos_weight(my_dataset)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
 
-    train_with_checkpoints(
+    losses_dict = train_with_checkpoints(
     model,
     train_loader,
     test_loader,
@@ -304,6 +321,7 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
     save_best=True,
     mode = 'classifier'
 )
+    return losses_dict
 
 
 
@@ -329,7 +347,15 @@ def map_features_to_available(feature_list, available_edge, available_x):
         'parent_weight': 'value',
         'child_weight': 'value',
         'parent_pos_weight': 'pos_weight',
-        'child_pos_weight': 'pos_weight'
+        'child_pos_weight': 'pos_weight',
+        'load_parent_mean': 'load_mean',
+        'load_parent_max':  'load_max',
+        'load_parent_min':  'load_min',
+        'load_parent_std':  'load_std',
+        'load_child_mean': 'load_mean',
+        'load_child_max':  'load_max',
+        'load_child_min':  'load_min',
+        'load_child_std':  'load_std',
     }
     
     for feature in feature_list:
@@ -371,12 +397,14 @@ def map_features_to_available(feature_list, available_edge, available_x):
         
         # Feature not found
         mappings[feature] = ('not_found', None)
-    
+
     # Remove duplicates while preserving order
     edge_features = list(dict.fromkeys(edge_features))
     node_features = list(dict.fromkeys(node_features))
     
-   
+    if "NO_EDGE_FEATURES" in feature_list:
+        print("NOTE: NO EDGE FEATURES WILL BE USED, 'NO_EDGE_FEATURES' found in feature list")
+        edge_features=None
     return node_features,edge_features,mappings
     
 
@@ -490,79 +518,123 @@ def get_features(feature_fp):
     return x_feat, edge_features
 
 
+def copy_config_to_output(config_path, output_dir):
+    if config_path is None:
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    dest_path = os.path.join(output_dir, os.path.basename(config_path))
+    shutil.copy(config_path, dest_path)
+    print(f"Copied config file → {dest_path}")
+
+def load_yaml_config(path):
+    """Load YAML config if provided."""
+    if path is None:
+        return {}
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file '{path}' not found")
+
+    print(f"Loading configuration from {path}")
+    with open(path, "r") as f:
+        return yaml.safe_load(f) or {}
+
+def merge_config_with_cli(config_dict, cli_args):
+    """
+    Merge config file values with CLI args.
+    CLI overrides config.
+    Returns an object that behaves like argparse.Namespace
+    """
+
+    merged = {}
+
+    # First put config values
+    for k, v in config_dict.items():
+        merged[k] = v
+
+    # Then override with CLI args if they are not None
+    for k, v in vars(cli_args).items():
+        if v is not None:
+            merged[k] = v
+    if cli_args.additional_features is not None:
+        print(f"adding features {cli_args.additional_features} from command line")
+        merged['features'] = merged['features'] + cli_args.additional_features
+    return SimpleNamespace(**merged)
 def main():
-    parser = argparse.ArgumentParser(description='Trains GNN for graph regression task')
-    
-    # Add arguments
-    parser.add_argument(
-        "--hidden_channels",
-        type=int,
-        default=64,
-        help="Number of hidden layers in neural network (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--learning_rate",
-        type=float,
-        default=0.005,
-        help="Learning rate for ADAM optimizer(default: %(default)s)"
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=100,
-        help="Number of epochs for training (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--heads",
-        type=int,
-        default=16,
-        help="Number of attention heads (GAT Only) (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=128,
-        help="Batch size for training (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--architecture",
-        type=str,
-        default="GAT",
-        help="What neural network model architecture to use (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--checkpoint_dir",
-        type=str,
-        default="data/pytorch_checkpoints",
-        help="What neural network model to use (default: %(default)s)"
-    )
-    parser.add_argument(
-        "--model_type",
-        type=str,
-        default="graph_regression",
-        help="What training method (graph_regression, edge_regression, edge_classification (default: %(default)s)"
-    )
-    parser.add_argument(
-          "--model_type",
-        type=str,
-        default=None,
-        help="Can give a config file for neural network training (default: %(default)s)"
+    parser = argparse.ArgumentParser(description="Train GNN with optional YAML config")
 
-    )
+    # Add CLI args
+    parser.add_argument("--config", type=str, default=None,
+                        help="Optional YAML config file")
 
+    parser.add_argument("--hidden_channels", type=int, default=None)
+    parser.add_argument("--learning_rate", type=float, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--heads", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--architecture", type=str, default=None)
+    parser.add_argument("--checkpoint_dir", type=str, default=None)
+    parser.add_argument("--model_type", type=str, default=None)
+    parser.add_argument("--features", type=str, nargs="*", default=None,
+                        help="Optional list of features OR put in config file")
+    parser.add_argument("--additional_features", type=str, nargs="*", default=None,
+                        help="Optional list of features that is appended to config file")
 
-
-
-
-
-    # Parse arguments
     args = parser.parse_args()
-    features = "all" #TODO make this work
-    print(f"using the following args {args}")
-    if args.model_type == 'graph_regression':
-        setup_and_train(args.hidden_channels, args.learning_rate, args.epochs, args.heads, args.batch_size, args.architecture, args.checkpoint_dir, node_features, edge_fatures)
-    elif args.model_type == 'edge_classification':
-        setup_and_train_classifier(args.hidden_channels, args.learning_rate, args.epochs, args.heads, args.batch_size, args.architecture, args.checkpoint_dir, node_features, edge_features)
+
+    # ----------------------------------------------------
+    # 1. Load config file (if provided)
+    # ----------------------------------------------------
+    config_dict = load_yaml_config(args.config)
+
+    # ----------------------------------------------------
+    # 2. Merge config values with CLI (CLI wins)
+    # ----------------------------------------------------
+    cfg = merge_config_with_cli(config_dict, args)
+    today = datetime.today().strftime("%Y-%m-%d")
+    cfg.checkpoint_dir += today
+    Path(cfg.checkpoint_dir).mkdir(parents=True, exist_ok=True)
+    print("\n==== Final Training Configuration (config + CLI override) ====")
+    print(cfg)
+    print("=============================================================\n")
+
+    # ----------------------------------------------------
+    # 3. Copy config file to output dir
+    # ----------------------------------------------------
+    if cfg.checkpoint_dir is None:
+        raise ValueError("checkpoint_dir must be defined in config or CLI")
+
+    copy_config_to_output(args.config, cfg.checkpoint_dir)
+
+    # ----------------------------------------------------
+    # 4. Feature extraction logic
+    # ----------------------------------------------------
+    
+    if "features" in config_dict and config_dict["features"] is not None:
+        node_features, edge_features = select_gnn_features(cfg.features)
+    
+    elif args.features is not None:
+        node_features, edge_features = select_gnn_features(args.features)
+    else:
+        node_features, edge_features = [],None
+        print("No features specified; using all features")
+
+    # ----------------------------------------------------
+    # 5. Dispatch model type
+    # ----------------------------------------------------
+    if cfg.model_type == "graph_regression":
+        setup_and_train(cfg.hidden_channels, cfg.learning_rate, cfg.epochs,
+                        cfg.heads, cfg.batch_size, cfg.architecture,
+                        cfg.checkpoint_dir, node_features=node_features, edge_features=edge_features)
+
+    elif cfg.model_type == "edge_classification":
+        setup_and_train_classifier(cfg.hidden_channels, cfg.learning_rate, cfg.epochs,
+                                   cfg.heads, cfg.batch_size, cfg.architecture,
+                                   cfg.checkpoint_dir, node_features=node_features, edge_features=edge_features)
+
+    else:
+        raise ValueError(f"Unknown model_type: {cfg.model_type}")
+
 if __name__ == "__main__":
     main()
 
