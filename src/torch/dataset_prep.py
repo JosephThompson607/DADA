@@ -20,7 +20,7 @@ from copy import deepcopy
 from metrics.node_and_edge_features import *
 from metrics.graph_features import *
 from metrics.time_metrics import *
-from salb_dataset import EdgeClassificationDataset
+#from salb_dataset import EdgeClassificationDataset
 from data_prep import *
 import multiprocessing
 
@@ -33,7 +33,10 @@ import pickle
 def get_node_and_graph_feat(instance_df, node_level_features, graph_level_features, debug_time = False):
         #Getting node feat
         df = instance_df[node_level_features + graph_level_features + ["instance","edge"]].copy()
+        df.dropna(inplace=True) #Get rid of original graph entries
+
         # Step 1: Extract parent and child IDs from edge column
+        print(df["edge"])
         df["parent"] = df["edge"].apply(lambda e: str(e[0]) if isinstance(e, (list, tuple)) else str(eval(e)[0]))
         df["child"] = df["edge"].apply(lambda e: str(e[1]) if isinstance(e, (list, tuple)) else str(eval(e)[1]))
 
@@ -92,9 +95,15 @@ def get_edge_features(res_feat_df, edge_level_features, instance, edge_labels):
     edges = sorted(edges) 
     torch_edges = [ (a-1, b-1) for (a,b) in edges] #0 based indexes
     edge_index = torch.tensor(torch_edges, dtype=torch.long).t().contiguous()
-    
+
+
     inst_df = res_feat_df[res_feat_df['instance'] == instance_name].copy()
     inst_df = inst_df[edge_level_features + edge_labels + ["edge"]]
+    nan_rows = inst_df[inst_df['edge'].isna()]
+    if not nan_rows.empty:
+        print("WARNING, NAN ROWS", nan_rows)
+        inst_df = inst_df.dropna(subset=['edge'], )
+
     inst_df['edge_tuple'] = inst_df['edge'].apply(lambda x: tuple(map(int, ast.literal_eval(x))))
     
     leftover = set(inst_df['edge_tuple']) - set(edges)
@@ -473,6 +482,7 @@ def generate_geo_ready(instance_pkl_fp, res_feat, node_level_features, graph_lev
         res_feat_df = pd.read_csv(res_feat)
     else:
         res_feat_df = res_feat
+    print(res_feat_df.head())
     node_feat_df = get_node_and_graph_feat(res_feat_df, node_level_features, graph_level_features, debug_time = False)
     instance_data = []
     for instance in alb_dicts:
@@ -483,8 +493,8 @@ def generate_geo_ready(instance_pkl_fp, res_feat, node_level_features, graph_lev
         elif len(edge_labels) > 0 and any(feat not in res_feat_df.columns for feat in edge_labels) :
             print(f'ERROR: edge labels {edge_labels} not in dataframe')
             return
-        else:
-            print(f'making data for {instance_name}')
+        # else:
+        #     print(f'making data for {instance_name}')
     
 
 
@@ -502,7 +512,9 @@ def generate_geo_ready(instance_pkl_fp, res_feat, node_level_features, graph_lev
 def process_one(args):
     n, ds,node_level_feats,graph_level_feats,edge_level_feats = args
 
-    pereria_dataset_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
+    #pereria_dataset_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
+    pereria_dataset_fp = f"/project/def-lahrichi/josephT/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
+
     instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
 
     geo_ready = generate_geo_ready(
@@ -521,27 +533,40 @@ def process_one(args):
 
 
 
-def data_preprocessing_salbp1(df, s_orig_col = 's_orig' ):
+def data_preprocessing_salbp1(df, s_orig_col = 's_orig' ,type='edge' ):
     # min_and_max = df.groupby('instance').agg({'no_stations': ['min']}).reset_index()
     # min_and_max.columns = ['instance', 'min',]
     # df = pd.merge(df, min_and_max, on='instance', how='left')
     # print(df.columns)
-    df["n_edges"] = df["average_number_of_immediate_predecessors"] * df['n_edges']
+    print(df['edge'])
+    # for col in df.columns:
+    #     print(col['edge'])
     df["n_edges"] = df["n_edges"].astype(int)
     df['order_strength'] = df['order_strength'].astype(float)
-    df['min_less_max'] = df['min'] < df[s_orig_col]
-    df['bin_less_max'] = df['bin_lb'] < df[s_orig_col]
-    df['is_less_max'] = df['no_stations'] < df[s_orig_col]
-    df['is_less_max'] = df['is_less_max'].astype(int)
-    df['min_less_max'] = df['min_less_max'].astype(int)
-    df['orig_n_stations'] =df['s_orig']
-    df['n_stations'] = df['no_stations']
+    #df['min_less_max'] = df['min'] < df[s_orig_col]
+    
+    if type=='edge':
+        df['min_less_max'] = df['min'] < df[s_orig_col]
+        df['is_less_max'] = df['no_stations'] < df[s_orig_col]
+        df['is_less_max'] = df['is_less_max'].astype(int)
+        df['min_less_max'] = df['min_less_max'].astype(int)
+    if 's_orig' in df.columns:
+
+        df['orig_n_stations'] =df['s_orig']
+
+    if 'bpp' in df.columns:
+        df['bin_less_max'] = df['bpp'] < df['orig_n_stations']
+    else:
+        df['bin_less_max'] = df['bin_lb'] < df['orig_n_stations']
+    #df['n_stations'] = df['no_stations']
     return df
 
 def process_one_edge_res(args):
     n, ds,node_level_feats,graph_level_feats,edge_level_feats = args
-    edge_res_fp = f'/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_ml_ready.csv'
+    #edge_res_fp = f'/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_{n}_ml_ready.csv'
+    edge_res_fp = f"/project/def-lahrichi/josephT/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
     print(f"trying {edge_res_fp}")
+    #instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
     instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
     edge_res = pd.read_csv(edge_res_fp)
     edge_res = data_preprocessing_salbp1(edge_res)
@@ -551,10 +576,11 @@ def process_one_edge_res(args):
         node_level_feats,
         graph_level_feats,
         edge_level_feats,
-        edge_labels=['is_less_max', 'n_stations']
+        #edge_labels=['is_less_max', 'n_stations']
     )
     print("HERE IS geo ready", geo_ready)
-    out_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
+    #out_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
+    out_fp = f"/project/def-lahrichi/josephT/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
     with open(out_fp, "wb") as f:
         pickle.dump(geo_ready, f)
 
@@ -796,15 +822,15 @@ def main():
                         'stations_delta',
                         'weight_sum',]
 
-    #n_range = [70, 80, 125, 150]
-    n_range = [50, 60, 90, 100]
+    n_range = [70, 80, 125, 150,200]
+    #n_range = [50, 60, 90, 100]
     datasets = ["unstructured", "chains", "bottleneck"]
     # n_range = [50]
     # datasets = ["unstructured"]
 
     args = [( n, ds,node_level_feats,graph_level_feats,edge_level_feats ) for n in n_range for ds in datasets]
     with Pool() as pool:
-        for msg in pool.imap_unordered(process_one_edge_res, args):
+        for msg in pool.imap_unordered(process_one, args):
             print(msg)
     # with Pool() as pool:
     #     for msg in pool.imap_unordered(process_one, args):

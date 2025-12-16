@@ -168,6 +168,37 @@ def train_with_checkpoints(
         'train_losses': train_losses,
         'test_losses': test_losses
     }
+
+
+
+def extract_feature_tensors(data_x, x_cols, node_features, graph_features):
+    """
+    Extract node and graph feature tensors from data.x
+    
+    Args:
+        data_x: PyTorch tensor of shape (num_nodes, num_features)
+        x_cols: List of all feature names corresponding to data_x columns
+        node_features: List of node feature names to extract
+        graph_features: List of graph feature names to extract
+    
+    Returns:
+        tuple: (node_tensor, graph_tensor, node_indices, graph_indices)
+    """
+    # Get indices
+    node_indices = [x_cols.index(f) for f in node_features if f in x_cols]
+    graph_indices = [x_cols.index(f) for f in graph_features if f in x_cols]
+    
+    # Convert to torch tensors for advanced indexing
+    node_idx_tensor = torch.tensor(node_indices, dtype=torch.long)
+    graph_idx_tensor = torch.tensor(graph_indices, dtype=torch.long)
+    
+    # Slice tensors
+    node_tensor = data_x[:, node_idx_tensor] if len(node_indices) > 0 else None
+    graph_tensor = data_x[:, graph_idx_tensor] if len(graph_indices) > 0 else None
+    
+    return node_tensor, graph_tensor, node_indices, graph_indices
+
+
 def do_datasets(node_feature_list = [], edge_feature_list = []):
     n_range =  [50,60,90, 100]
     #n_range =  [50,]
@@ -191,16 +222,20 @@ def do_datasets(node_feature_list = [], edge_feature_list = []):
 
 
 
-def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,node_features = [],edge_features=[]):
-    my_dataset = do_datasets(node_features, edge_features)
-    in_channels = my_dataset[0].x.size()[1] # Assuming a single feature per node.
+def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,x_features = [],edge_features=[],node_features=[], graph_features=[], seed=None, pooling='mean'):
+    my_dataset = do_datasets(x_features, edge_features)
+    in_channels = my_dataset[0].x.size()[1] 
     edge_channels = my_dataset[0].edge_attr.size()[1]
-
+    print(f"size of datset: {len(my_dataset)} dataset splitting seed {seed}" )
     out_channels = 1 
     #splits the data into train and test
     transform = NormalizeFeatures()
     my_dataset.transform = transform
-    train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)])
+    if seed is not None:
+        generator = torch.Generator().manual_seed(seed)
+        train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)], generator=generator)
+    else:
+        train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)])
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True )
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -208,14 +243,29 @@ def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size,
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device, " Setting model: ", model)
-    if model == "GAT":
+    if "Stats" in model:
+        #Get node level and graph level feature indicies for slicing x array.
+        node_tensor, graph_tensor, node_indices, graph_indices = extract_feature_tensors(my_dataset[0].x, my_dataset[0].x_cols, node_features, graph_features)
+        graph_channels = graph_tensor.size()[1]
+        in_channels = node_tensor.size()[1]
+    if model =="MLP":
+        model = GraphRegressorMLP(in_channels, hidden_channels, out_channels, edge_dim=edge_channels, pooling=pooling).to(device)
+    elif model == "GAT":
         model =  GraphGATClassifier(in_channels, hidden_channels, out_channels, edge_dim=edge_channels, heads=heads).to(device)
-    if model == "GAT3":
+    elif model == "GAT3":
         model =  GraphGATClassifier3Layer(in_channels, hidden_channels, out_channels, edge_dim=edge_channels,heads=heads).to(device)
     elif model == "GCN":
         model = GraphClassifier(in_channels, hidden_channels, out_channels).to(device)
     elif model == "GCN3":
         model = GraphClassifier3Layer(in_channels, hidden_channels, out_channels).to(device)
+    elif model == "GATStats":
+        model =  GraphGATClassifierStats(in_channels,graph_channels, node_indices, graph_indices, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads, pooling=pooling).to(device)
+    elif model == "GAT3Stats":
+        model = GraphGAT3LayerClassifierStats(in_channels,graph_channels, node_indices, graph_indices, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads, pooling=pooling).to(device)
+    elif model == "GCNStats":
+        model = GraphClassifierStats(in_channels,graph_channels, node_indices, graph_indices, hidden_channels, out_channels, pooling=pooling).to(device)
+    elif model == "GCN3Stats":
+        model = GraphClassifier3LayerStats(in_channels,graph_channels, node_indices, graph_indices, hidden_channels, out_channels, pooling=pooling).to(device)
 
     else:
         print(f"Error: GNN Architecture '{model}' does not exist.")
@@ -271,10 +321,9 @@ def get_pos_weight(data_list):
     print(f"Percent positive {percent_pos} percent negative {percent_neg}")
     return pos_weight
 
-def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,node_features = [],edge_features=[]):
-    print("Node features, ", node_features, "\nedge_features", edge_features)
-    my_dataset = do_datasets_classifier(node_features, edge_features)
-    print("size of datset: ", len(my_dataset))
+def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,x_features = [],node_features=[],edge_features=[], seed=None):
+    my_dataset = do_datasets_classifier(x_features, edge_features)
+    print(f"size of datset: {len(my_dataset)} dataset splitting seed {seed}" )
     
     in_channels = my_dataset[0].x.size()[1] 
     edge_channels = my_dataset[0].edge_attr.size()[1]
@@ -282,7 +331,12 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
     #splits the data into train and test
     transform = NormalizeFeatures()
     my_dataset.transform = transform
-    train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)])
+    if seed is not None:
+        generator = torch.Generator().manual_seed(seed)
+        train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)], generator=generator)
+    else:
+        train_dataset, test_dataset = random_split(my_dataset, [int(len(my_dataset)*0.8), len(my_dataset) - int(len(my_dataset)*0.8)])
+
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True )
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -290,7 +344,10 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("using device:", device, " Setting model: ", model)
-    if model == "GAT":
+    if model =="MLP":
+        model = EdgeClassifierMLP(in_channels, hidden_channels, out_channels, edge_dim=edge_channels).to(device)
+
+    elif model == "GAT":
         model = EdgeClassifierGAT(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
     if model == "GAT3":
         model = EdgeClassifierGAT3Layer(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
@@ -325,7 +382,7 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
 
 
 
-def map_features_to_available(feature_list, available_edge, available_x):
+def map_features_to_available(feature_list, available_edge, available_x, available_graph, w_regression_data):
     """
     Maps features from feature_list to available_edge and available_x.
     
@@ -340,6 +397,8 @@ def map_features_to_available(feature_list, available_edge, available_x):
     """
     edge_features = []
     node_features = []
+    x_features = []
+    graph_features = []
     mappings = {}
     
     # Special mappings
@@ -367,14 +426,22 @@ def map_features_to_available(feature_list, available_edge, available_x):
         
         # Check for exact match in node features
         if feature in available_x:
-            node_features.append(feature)
-            mappings[feature] = ('node', feature)
+            x_features.append(feature)
+            mappings[feature] = ('x', feature)
+            
+            if feature in available_graph:
+                graph_features.append(feature)
+                mappings[feature] = ('graph', feature)
+            else:
+                node_features.append(feature)
+                mappings[feature] = ('node', feature)
             continue
-        
+            
         # Check special mappings
         if feature in special_maps:
             target = special_maps[feature]
             if target in available_x:
+                x_features.append(target)
                 node_features.append(target)
                 mappings[feature] = ('node', target, 'special_mapping')
                 continue
@@ -383,6 +450,7 @@ def map_features_to_available(feature_list, available_edge, available_x):
         if feature.startswith('parent_'):
             suffix = feature[7:]  # Remove 'parent_' prefix
             if suffix in available_x:
+                x_features.append(suffix)
                 node_features.append(suffix)
                 mappings[feature] = ('node', suffix, 'parent_mapping')
                 continue
@@ -391,24 +459,34 @@ def map_features_to_available(feature_list, available_edge, available_x):
         if feature.startswith('child_'):
             suffix = feature[6:]  # Remove 'child_' prefix
             if suffix in available_x:
+                x_features.append(suffix)
                 node_features.append(suffix)
                 mappings[feature] = ('node', suffix, 'child_mapping')
                 continue
         
         # Feature not found
         mappings[feature] = ('not_found', None)
-
+    if w_regression_data:
+        to_append = ['lb_6']
+        x_features += to_append
+        graph_features += to_append
+        substring = "priority"
+        if any(substring in s for s in graph_features):
+            load_stats = ['priority_min_stations', 'priority_max_stations']
+            graph_features+= load_stats
+            x_features += load_stats
     # Remove duplicates while preserving order
     edge_features = list(dict.fromkeys(edge_features))
     node_features = list(dict.fromkeys(node_features))
-    
+    graph_features = list(dict.fromkeys(graph_features))
+    x_features = list((dict.fromkeys(x_features)))
     if "NO_EDGE_FEATURES" in feature_list:
         print("NOTE: NO EDGE FEATURES WILL BE USED, 'NO_EDGE_FEATURES' found in feature list")
         edge_features=None
-    return node_features,edge_features,mappings
+    return x_features,edge_features,node_features, graph_features,mappings
     
 
-def select_gnn_features(feat_list):
+def select_gnn_features(feat_list, w_regression_data):
     available_edge = ['child_min',
                      'child_max',
                      'child_avg',
@@ -490,9 +568,54 @@ def select_gnn_features(feat_list):
                      'n_tasks_without_predecessors',
                      'share_of_tasks_without_predecessors',
                      'avg_tasks_per_stage']
-    x_features,edge_features, mappings = map_features_to_available(feat_list, available_edge, available_x)
+    available_graph = [
+                     'priority_min_stations',
+                     'priority_max_stations',
+                     'priority_min_gap',
+                     'priority_max_gap',
+                     'random_spread',
+                     'random_coefficient_of_variation',
+                     'random_avg_gap',
+                     'random_min_gap',
+                     'random_max_gap',
+                     'random_avg_efficiency',
+                     'min_div_c',
+                     'max_div_c',
+                     'sum_div_c',
+                     'std_div_c',
+                     't_cv',
+                     'ti_size',
+                     'avg_div_c',
+                     'lb_6',
+                     'n_edges',
+                     'order_strength',
+                     'average_number_of_immediate_predecessors',
+                     'max_degree',
+                     'max_in_degree',
+                     'max_out_degree',
+                     'divergence_degree',
+                     'convergence_degree',
+                     'n_bottlenecks',
+                     'share_of_bottlenecks',
+                     'avg_degree_of_bottlenecks',
+                     'n_chains',
+                     'avg_chain_length',
+                     'nodes_in_chains',
+                     'n_stages',
+                     'stages_div_n',
+                     'prec_strength',
+                     'prec_bias',
+                     'prec_index',
+                     'n_isolated_nodes',
+                     'share_of_isolated_nodes',
+                     'n_tasks_without_predecessors',
+                     'share_of_tasks_without_predecessors',
+                     'avg_tasks_per_stage']
+    x_features,edge_features,node_features, graph_features,mappings = map_features_to_available(feat_list, available_edge, available_x, available_graph, w_regression_data)
     print("Edge Features:", edge_features)
-    print("\nNode Features:", x_features)
+    print("\X Features:", x_features)
+    print("\nNode Features(also lumped in with x):", node_features)
+    print("\nGraph Features (also lumped in with x):", graph_features)
     print("\nNot Found:")
     for feature, mapping in mappings .items():
         if mapping[0] == 'not_found':
@@ -502,7 +625,7 @@ def select_gnn_features(feat_list):
     for feature, mapping in mappings.items():
         if len(mapping) > 2:
             print(f"  - {feature} -> {mapping[1]} ({mapping[2]})")
-    return x_features, edge_features
+    return x_features, edge_features,node_features,graph_features
 
 def load_configuration(feature_fp):
     print("using features specified in ", feature_fp)
@@ -512,10 +635,10 @@ def load_configuration(feature_fp):
     return features_list       
 
 
-def get_features(feature_fp):
+def get_features(feature_fp, w_regression_data=False):
     feat_list = load_configuration(feature_fp)
-    x_feat, edge_features = select_gnn_features(feat_list)
-    return x_feat, edge_features
+    x_feat, edge_features, node_features, graph_features = select_gnn_features(feat_list, w_regression_data)
+    return x_feat, edge_features, node_features, graph_features
 
 
 def copy_config_to_output(config_path, output_dir):
@@ -570,9 +693,11 @@ def main():
     parser.add_argument("--hidden_channels", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--data_seed", type=int, default=None, help="seed for train test split")
     parser.add_argument("--heads", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--architecture", type=str, default=None)
+    parser.add_argument("--pooling", type=str, default='mean', help="What pooling layer to use for graph regression")
     parser.add_argument("--checkpoint_dir", type=str, default=None)
     parser.add_argument("--model_type", type=str, default=None)
     parser.add_argument("--features", type=str, nargs="*", default=None,
@@ -609,12 +734,16 @@ def main():
     # ----------------------------------------------------
     # 4. Feature extraction logic
     # ----------------------------------------------------
-    
+    #Adds in regression specific features
+    w_regression_data = False
+    if cfg.model_type == "graph_regression":
+        w_regression_data=True
     if "features" in config_dict and config_dict["features"] is not None:
-        node_features, edge_features = select_gnn_features(cfg.features)
+        
+        x_features, edge_features, node_features, graph_features = select_gnn_features(cfg.features, w_regression_data)
     
     elif args.features is not None:
-        node_features, edge_features = select_gnn_features(args.features)
+        x_features, edge_features, node_features, graph_features= select_gnn_features(args.features,w_regression_data)
     else:
         node_features, edge_features = [],None
         print("No features specified; using all features")
@@ -625,12 +754,12 @@ def main():
     if cfg.model_type == "graph_regression":
         setup_and_train(cfg.hidden_channels, cfg.learning_rate, cfg.epochs,
                         cfg.heads, cfg.batch_size, cfg.architecture,
-                        cfg.checkpoint_dir, node_features=node_features, edge_features=edge_features)
+                        cfg.checkpoint_dir, x_features=x_features, edge_features=edge_features, seed=args.data_seed, graph_features=graph_features, node_features=node_features, pooling=cfg.pooling)
 
     elif cfg.model_type == "edge_classification":
         setup_and_train_classifier(cfg.hidden_channels, cfg.learning_rate, cfg.epochs,
                                    cfg.heads, cfg.batch_size, cfg.architecture,
-                                   cfg.checkpoint_dir, node_features=node_features, edge_features=edge_features)
+                                   cfg.checkpoint_dir, x_features=x_features, edge_features=edge_features,  seed=args.data_seed)
 
     else:
         raise ValueError(f"Unknown model_type: {cfg.model_type}")

@@ -32,6 +32,7 @@ def get_time_stats(alb_instance, C=None):
     task_times = list( alb_instance['task_times'].values())
     min_div_c = np.min(task_times) / C
     max_div_c = np.max(task_times) / C
+    t_min_div_t_max = min_div_c/max_div_c
     time_interval_size = max_div_c - min_div_c
     sum_div_c = np.sum(task_times) / C
     std_div_c = np.std(task_times) / C
@@ -39,7 +40,7 @@ def get_time_stats(alb_instance, C=None):
     t_cv = np.std(task_times)/(sum(task_times)/len(task_times))
     lb_1 = math.ceil(sum_div_c)
     lb_6 = get_lb6(alb_instance)
-    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size, 'avg_div_c':avg_div_c, 'lb_6':lb_6, 'lb_1':lb_1}
+    return {'min_div_c': min_div_c, 'max_div_c': max_div_c, 't_min_div_t_max':t_min_div_t_max,'sum_div_c': sum_div_c, 'std_div_c': std_div_c, 't_cv':t_cv, 'ti_size':time_interval_size, 'avg_div_c':avg_div_c, 'lb_6':lb_6, 'lb_1':lb_1}
 
 
 

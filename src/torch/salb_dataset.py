@@ -1,6 +1,6 @@
 from torch_geometric.data import Dataset, Data, InMemoryDataset
 import os.path as osp
-from SALBP_solve import *
+import pickle
 import torch
 import ast
 from alb_instance_compressor import open_salbp_pickle_as_dict, open_multi_pickles_as_dict

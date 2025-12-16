@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv, GATv2Conv
 import torch.nn as nn
-from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import global_mean_pool, global_max_pool, global_add_pool
 
 class EdgeClassifier3Conv3Lin(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
@@ -42,6 +42,34 @@ class EdgeClassifier3Conv3Lin(torch.nn.Module):
         edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
         
         # Edge classification
+        return self.edge_mlp(edge_features)
+
+
+class EdgeClassifierMLP(torch.nn.Module):
+    '''Indicates if an edge has an impact on the SALBP lower bound'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None):
+        super(EdgeClassifierMLP, self).__init__()
+        edge_input_dim = 2 * hidden_channels + edge_dim
+
+        self.node_mlp = torch.nn.Sequential(
+            torch.nn.Linear(in_channels, hidden_channels),
+            torch.nn.ReLU(),
+        )
+            
+        self.edge_mlp = torch.nn.Sequential(
+            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+        
+    def forward(self, data,**data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        parents, children = edge_index
+        edge_data = data.edge_attr
+        x = self.node_mlp(x)
+        edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
+        
         return self.edge_mlp(edge_features)
     
 class EdgeClassifier(torch.nn.Module):
@@ -325,8 +353,17 @@ class EdgeClassifierGAT3Layer(torch.nn.Module):
     
 class GraphClassifier(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels):
+    def __init__(self, in_channels, hidden_channels, out_channels, pooling='mean'):
         super(GraphClassifier, self).__init__()
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
+        
         self.conv1 = GCNConv(in_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
         self.graph_mlp = torch.nn.Sequential(
@@ -343,7 +380,7 @@ class GraphClassifier(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.conv2(x, edge_index)
-        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+        x = self.pool(x, batch)  # [batch_size, hidden_channels]
 
         # 3. Apply a final classifier
         x = F.dropout(x, p=0.5, training=self.training)
@@ -354,8 +391,16 @@ class GraphClassifier(torch.nn.Module):
 
 class GraphClassifier3Layer(torch.nn.Module):
     '''Indicates if graph has an edge that impacts the lower bound'''
-    def __init__(self, in_channels, hidden_channels, out_channels):
+    def __init__(self, in_channels, hidden_channels, out_channels, pooling='mean'):
         super(GraphClassifier3Layer, self).__init__()
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
         self.conv1 = GCNConv(in_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
         self.conv3 = GCNConv(hidden_channels, hidden_channels)
@@ -375,7 +420,7 @@ class GraphClassifier3Layer(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.conv3(x, edge_index)
-        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
+        x = self.pool(x, batch)  # [batch_size, hidden_channels]
 
         # 3. Apply a final classifier
         x = F.dropout(x, p=0.5, training=self.training)
@@ -449,80 +494,282 @@ class GraphGATClassifier3Layer(torch.nn.Module):
 
         return x
     
+class GraphClassifierStats(torch.nn.Module):
+    '''Indicates if graph has an edge that impacts the lower bound, includes graph data after node embeddings'''
+    def __init__(self, in_channels,graph_channels,node_indices, graph_indices, hidden_channels, out_channels, pooling='mean'):
+        super(GraphClassifierStats, self).__init__()
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
+        self.register_buffer('node_indices', torch.tensor(node_indices, dtype=torch.long))
+        self.register_buffer('graph_indices', torch.tensor(graph_indices, dtype=torch.long))
+        self.conv1 = GCNConv(in_channels, hidden_channels)
+        self.conv2 = GCNConv(hidden_channels, hidden_channels)
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels+ graph_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+    def forward(self, data,**data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        batch = data.batch
+        node_tensor = x[:, self.node_indices] 
+        graph_tensor = x[:, self.graph_indices] 
+     # Pool graph features (they should be constant per graph, so mean/max/first all work)
+        graph_tensor = global_mean_pool(graph_tensor, batch)
+        # Node embedding
+        x = self.conv1(node_tensor, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index)
+        x = self.pool(x, batch)  # [batch_size, hidden_channels]
+        x = F.dropout(x, p=0.5, training=self.training)
+        #combine with graph data
+        x= torch.cat([x, graph_tensor], dim=1)
+        x = self.graph_mlp(x)
+        return x
 
-
-
-# class GraphGATClassifierStats(torch.nn.Module):
-#     '''Indicates if graph has an edge that impacts the lower bound'''
-#     def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
-#         super(GraphGATClassifierStats, self).__init__()
-#         self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  # TODO
-#         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads,
-#                              concat=False, dropout=dropout)  # TODO
-#         self.graph_mlp = torch.nn.Sequential(
-#             torch.nn.Linear(hidden_channels + n_features, hidden_channels),
-#             torch.nn.ReLU(),
-#             torch.nn.Linear(hidden_channels, 1)
-#         )
-#     def forward(self, data, **data_kwargs):
-#         x = data.x
-#         edge_index = data.edge_index
-#         batch = data.batch
-#         stats_tensor = torch.stack(
-#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-#             dim=0
-#         ).to(x.device)
-#         # Node embedding
-#         x = self.conv1(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, p=0.5, training=self.training)
-#         x = self.conv2(x, edge_index)
-#         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
-
-#         # 3. Apply a final classifier
-#         x = F.dropout(x, p=0.5, training=self.training)
-#         x = torch.cat([x, stats_tensor], dim=1)
-#         x = self.graph_mlp(x)
+class GraphClassifier3LayerStats(torch.nn.Module):
+    '''Indicates if graph has an edge that impacts the lower bound'''
+    def __init__(self, in_channels,graph_channels,node_indices, graph_indices, hidden_channels, out_channels, pooling='mean'):
+        super(GraphClassifier3LayerStats, self).__init__()
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
         
+        self.register_buffer('node_indices', torch.tensor(node_indices, dtype=torch.long))
+        self.register_buffer('graph_indices', torch.tensor(graph_indices, dtype=torch.long))
+        self.conv1 = GCNConv(in_channels, hidden_channels)
+        self.conv2 = GCNConv(hidden_channels, hidden_channels)
+        self.conv3 = GCNConv(hidden_channels, hidden_channels)
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels + graph_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+    def forward(self, data,**data_kwargs):
+        x ,  edge_index= data.x, data.edge_index
+        batch = data.batch
+        # feature sorting
+        node_tensor = x[:, self.node_indices] 
+        graph_tensor = x[:, self.graph_indices] 
+        # Pool graph features (they should be constant per graph, so mean/max/first all work)
+        graph_tensor = global_mean_pool(graph_tensor, batch)
 
-#         return x
+        #Node embedding
+        x = self.conv1(node_tensor, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv3(x, edge_index)
+        x = self.pool(x, batch)  # [batch_size, hidden_channels]
+        x = F.dropout(x, p=0.5, training=self.training)
+
+        # Combine with graph features
+        x= torch.cat([x, graph_tensor], dim=1)
+        x = self.graph_mlp(x)
+        return x
     
 
-# class GraphGATClassifierStats3Layer(torch.nn.Module):
-#     '''Indicates if graph has an edge that impacts the lower bound'''
-#     def __init__(self, in_channels, hidden_channels, heads=4, dropout=0.6, n_features=15):
-#         super(GraphGATClassifierStats3Layer, self).__init__()
-#         self.conv1 = GATConv(in_channels, hidden_channels, heads , dropout=dropout)  
-#         self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, dropout=dropout)  
-#         self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads,
-#                              concat=False, dropout=dropout)  
-#         self.graph_mlp = torch.nn.Sequential(
-#             torch.nn.Linear(hidden_channels + n_features, hidden_channels),
-#             torch.nn.ReLU(),
-#             torch.nn.Linear(hidden_channels, 1)
-#         )
-#     def forward(self, data, **data_kwargs):
-#         x = data.x
-#         edge_index = data.edge_index
-#         batch = data.batch
-#         stats_tensor = torch.stack(
-#             [data_kwargs["graph_data"][fp][instance] for (fp,instance) in zip(data.dataset, data.instance)],
-#             dim=0
-#         ).to(x.device)
-#         # Node embedding
-#         x = self.conv1(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, p=0.5, training=self.training)
-#         x = self.conv2(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, p=0.5, training=self.training)
-#         x = self.conv3(x, edge_index)
-#         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
 
-#         # 3. Apply a final classifier
-#         x = F.dropout(x, p=0.5, training=self.training)
-#         x = torch.cat([x, stats_tensor], dim=1)
-#         x = self.graph_mlp(x)
+class GraphGATClassifierStats(torch.nn.Module):
+    '''
+    GAT-based graph classifier that separates node features (for GNN) 
+    and graph-level features (for final MLP).
+    '''
+    def __init__(self, in_channels, graph_channels, node_indices, graph_indices,
+                 hidden_channels, out_channels, edge_dim=None, heads=4, dropout=0.6, pooling='mean'):
+        super(GraphGATClassifierStats, self).__init__()
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
+        
+        # Register indices as buffers for proper device management
+        self.register_buffer('node_indices', torch.tensor(node_indices, dtype=torch.long))
+        self.register_buffer('graph_indices', torch.tensor(graph_indices, dtype=torch.long))
+        
+        # GAT layers operate on node features only
+        self.conv1 = GATConv(in_channels, hidden_channels, heads, 
+                            edge_dim=edge_dim, dropout=dropout)
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, 
+                            edge_dim=edge_dim, concat=False, dropout=dropout)
+        
+        # Final MLP combines pooled node embeddings with graph features
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels + graph_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+    
+    def forward(self, data, **data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        edge_attr = data.edge_attr
+        batch = data.batch
+        
+        # Separate node features from graph features
+        node_tensor = x[:, self.node_indices]  # [num_nodes, num_node_features]
+        graph_features_per_node = x[:, self.graph_indices]  # [num_nodes, num_graph_features]
+        graph_tensor = global_mean_pool(graph_features_per_node, batch) #Combine to graph level
+
+        # Node and edge embedding through GAT layers
+        x = self.conv1(node_tensor, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
+        # Pool node embeddings to graph level
+        x = self.pool(x, batch)  
+
+        #Combine with Graph data, feed through FC layers
+        x = torch.cat([x, graph_tensor], dim=1)  # [batch_size, hidden_channels + graph_channels]
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.graph_mlp(x)
+        
+        return x
+    
+class GraphGAT3LayerClassifierStats(torch.nn.Module):
+    '''
+    3-Layer GAT-based graph classifier with 3 FC layers.
+    Graph features are seperated out and fed into FC layers at the end.
+    '''
+    def __init__(self, in_channels, graph_channels, node_indices, graph_indices,
+                 hidden_channels, out_channels, edge_dim=None, heads=4, dropout=0.6):
+        super(GraphGAT3LayerClassifierStats, self).__init__()
+        self.register_buffer('node_indices', torch.tensor(node_indices, dtype=torch.long))
+        self.register_buffer('graph_indices', torch.tensor(graph_indices, dtype=torch.long))
+        self.dropout= dropout
+        #GAT layers
+        self.conv1 = GATConv(in_channels, hidden_channels, heads, 
+                            edge_dim=edge_dim, dropout=dropout)
+        self.conv2 = GATConv(hidden_channels * heads, hidden_channels, heads, 
+                            edge_dim=edge_dim, dropout=dropout)
+        self.conv3 = GATConv(hidden_channels * heads, hidden_channels, heads, 
+                            edge_dim=edge_dim, concat=False, dropout=dropout)
+        
+        #FC layers
+        self.graph_mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels + graph_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_channels, hidden_channels // 2),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_channels // 2, out_channels)
+        )
+    
+    def forward(self, data, **data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        edge_attr = data.edge_attr
+        batch = data.batch
+        
+        # Separate node features from graph features
+        node_tensor = x[:, self.node_indices]  # [num_nodes, num_node_features]
+        graph_features_per_node = x[:, self.graph_indices]  # [num_nodes, num_graph_features]
+        graph_tensor = global_mean_pool(graph_features_per_node, batch)  # [batch_size, num_graph_features]
+        
+        # 3 GAT layers with activation and dropout
+        x = self.conv1(node_tensor, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
+        x = F.relu(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        
+        x = self.conv3(x, edge_index, edge_attr=edge_attr)
+        
+        # Pool node embeddings to graph level
+        x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
         
 
-#         return x
+        # Concatenate pooled node embeddings with graph features
+        x = torch.cat([x, graph_tensor], dim=1)  # [batch_size, hidden_channels + graph_channels]
+        
+        # 3 FC layers
+        x = self.graph_mlp(x)
+        
+        return x
+    
+
+####Multi-Layer Perceptrons###
+#These do not use the GCN layers, take features directly 
+
+class GraphRegressorMLP(torch.nn.Module):
+    '''Graph-level regression by pooling edge representations'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None, pooling='mean'):
+        super(GraphRegressorMLP, self).__init__()
+        
+        # Set pooling function
+        if pooling == 'mean':
+            self.pool = global_mean_pool
+        elif pooling == 'max':
+            self.pool = global_max_pool
+        elif pooling == 'sum':
+            self.pool = global_add_pool
+        else:
+            raise ValueError(f"Unknown pooling method: {pooling}")
+        
+        # Node embedding MLP
+        self.node_mlp = torch.nn.Sequential(
+            torch.nn.Linear(in_channels, hidden_channels),
+            torch.nn.ReLU(),
+        )
+        
+        # Edge embedding MLP
+        edge_input_dim = 2 * hidden_channels + edge_dim
+        self.edge_mlp = torch.nn.Sequential(
+            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, hidden_channels)
+        )
+        
+        # Final regression head (after pooling)
+        self.regression_head = torch.nn.Sequential(
+            torch.nn.Linear(hidden_channels, hidden_channels // 2),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.2),
+            torch.nn.Linear(hidden_channels // 2, out_channels)
+        )
+        
+    def forward(self, data, **data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        parents, children = edge_index
+        edge_data = data.edge_attr
+        
+        # Get node embeddings
+        x = self.node_mlp(x)
+        
+        # Get edge embeddings
+        edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
+        edge_embeddings = self.edge_mlp(edge_features)
+        
+        # Create edge batch indices (which graph each edge belongs to)
+        edge_batch = data.batch[edge_index[0]]
+        
+        # Pool edge embeddings to graph level
+        graph_embedding = self.pool(edge_embeddings, edge_batch)
+        
+        # Final regression output
+        output = self.regression_head(graph_embedding)
+        
+        return output
