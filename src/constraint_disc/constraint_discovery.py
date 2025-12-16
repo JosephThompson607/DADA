@@ -244,7 +244,6 @@ def best_first_reduction(G_max_close_orig, G_min,  orig_salbp, n_queries , ex_fp
             t_cost = edge[3]
         elif selector_method == 'weight_sum':
             edge, weight = select_highest_combined_weight_edge( G_max_red,G_min,rng, remaining_budget)
-            print('here is the edge', edge, ' weight ', weight)
             t_cost = edge[3]
         G_max_close, G_max_red, G_min, _ = focused_query_prec_set(G_max_close, G_max_red, G_min, G_true,edge)
         order_strength = calculate_order_strength(G_max_red, G_max_close=G_max_close)

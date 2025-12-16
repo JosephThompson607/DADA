@@ -1,8 +1,12 @@
 import pandas as pd
 import sys
 import time
+import torch.nn as nn
 
+import os
+sys.path.append('src/torch')
 sys.path.append('src')
+from gnn_pred import *
 from data_prep import albp_to_features
 import copy
 def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config, **_):
@@ -105,6 +109,10 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
 
 def best_first_ml_choice_edge(edges, orig_salbp,G_max_close, G_max_red, ml_model,ml_config, top_n=1, **_):
     '''Selects the edge with the highest probability of reducing the objective value'''
+    # if isinstance(ml_model, nn.Module): #Check for neural network, otherwise is XGboost
+    #     return nn_edge_classification_pred(ml_model, orig_salbp)
+
+
     prob_df = predictor(orig_salbp, G_max_close, G_max_red, ml_model,ml_config)
     best_edges = select_best_n_edges(prob_df, edges,top_n)
     return best_edges
