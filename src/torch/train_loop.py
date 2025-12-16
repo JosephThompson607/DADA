@@ -321,7 +321,7 @@ def get_pos_weight(data_list):
     print(f"Percent positive {percent_pos} percent negative {percent_neg}")
     return pos_weight
 
-def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,x_features = [],node_features=[],edge_features=[], seed=None):
+def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, batch_size, model, checkpoint_dir, save_every=20,x_features = [],node_features=[],edge_features=[],graph_features=[], seed=None):
     my_dataset = do_datasets_classifier(x_features, edge_features)
     print(f"size of datset: {len(my_dataset)} dataset splitting seed {seed}" )
     
@@ -349,7 +349,7 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
 
     elif model == "GAT":
         model = EdgeClassifierGAT(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
-    if model == "GAT3":
+    elif model == "GAT3":
         model = EdgeClassifierGAT3Layer(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
     elif model == "GCN":
         print("using GCN with 2 conv, 2 fully connected layers")
@@ -688,7 +688,7 @@ def main():
 
     # Add CLI args
     parser.add_argument("--config", type=str, default=None,
-                        help="Optional YAML config file")
+                        help="YAML config file")
 
     parser.add_argument("--hidden_channels", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=None)
@@ -759,7 +759,7 @@ def main():
     elif cfg.model_type == "edge_classification":
         setup_and_train_classifier(cfg.hidden_channels, cfg.learning_rate, cfg.epochs,
                                    cfg.heads, cfg.batch_size, cfg.architecture,
-                                   cfg.checkpoint_dir, x_features=x_features, edge_features=edge_features,  seed=args.data_seed)
+                                   cfg.checkpoint_dir, x_features=x_features, edge_features=edge_features, graph_features=graph_features, seed=args.data_seed)
 
     else:
         raise ValueError(f"Unknown model_type: {cfg.model_type}")

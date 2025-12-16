@@ -30,8 +30,8 @@ FEATURE_CONFIG_FILES = [
 # --------------------------------------------------------
 #ARCHITECTURES = ["GAT","GAT3", "GCN", "GCN3"]
 #ARCHITECTURES = ["GATStats","GAT3Stats", "GCNStats", "GCN3Stats", "MLP"]
-ARCHITECTURES = ["GCNStats"]
-#ARCHITECTURES = ["MLP"]
+#ARCHITECTURES = ["GATStats"]
+ARCHITECTURES = ["MLP"]
 #ARCHITECTURES = ["GAT"]
 #ARCHITECTURES = [ "GCN"]
 # --------------------------------------------------------
@@ -45,7 +45,8 @@ SEARCH_SPACE = {
    "heads": [8, 16],               # used for GAT
   # "heads":8,
     "batch_size": [64, 128, 256],
-    "pooling": ['mean','sum'] #Used for GAT
+    "pooling": ['mean'] #Used for regression
+  #  "pooling": ['mean','sum'] #Used for regression
 }
 # SEARCH_SPACE = {
 #     "hidden_channels": [32, ],
