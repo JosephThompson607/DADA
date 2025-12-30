@@ -487,11 +487,13 @@ def generate_geo_ready(instance_pkl_fp, res_feat, node_level_features, graph_lev
     instance_data = []
     for instance in alb_dicts:
         instance_name = str(instance['name']).split('/')[-1].split('.')[0]
-        
+        if 'no_stations' in res_feat_df.columns:
+                res_feat_df['n_stations'] = res_feat_df['no_stations']
         if res_feat_df[res_feat_df['instance']==instance_name].empty:
             continue
         elif len(edge_labels) > 0 and any(feat not in res_feat_df.columns for feat in edge_labels) :
             print(f'ERROR: edge labels {edge_labels} not in dataframe')
+            
             return
         # else:
         #     print(f'making data for {instance_name}')
@@ -516,7 +518,7 @@ def process_one(args):
     pereria_dataset_fp = f"/project/def-lahrichi/josephT/{ds}_{n}/{ds}_{n}_orig_results_edge.csv"
 
     instance_pkl_fp    = f"/home/jot240/DADA/DADA/data/raw/pkl_datasets/n_{n}_{ds}.pkl"
-
+    print("Trying: ", pereria_dataset_fp)
     geo_ready = generate_geo_ready(
         instance_pkl_fp,
         pereria_dataset_fp,

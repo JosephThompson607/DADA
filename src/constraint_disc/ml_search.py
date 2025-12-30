@@ -109,8 +109,8 @@ def select_best_n_edges(edge_prob_df, valid_edges, top_n):
 
 def best_first_ml_choice_edge(edges, orig_salbp,G_max_close, G_max_red, ml_model,ml_config, top_n=1, **_):
     '''Selects the edge with the highest probability of reducing the objective value'''
-    # if isinstance(ml_model, nn.Module): #Check for neural network, otherwise is XGboost
-    #     return nn_edge_classification_pred(ml_model, orig_salbp)
+    if isinstance(ml_model, nn.Module): #Check for neural network, otherwise is XGboost
+        return nn_edge_classification_pred( orig_salbp, G_max_close, G_max_red, ml_model, ml_config)
 
 
     prob_df = predictor(orig_salbp, G_max_close, G_max_red, ml_model,ml_config)

@@ -200,23 +200,37 @@ def extract_feature_tensors(data_x, x_cols, node_features, graph_features):
 
 
 def do_datasets(node_feature_list = [], edge_feature_list = []):
-    n_range =  [50,60,90, 100]
+    
     #n_range =  [50,]
     datasets = ['unstructured', 'chains', 'bottleneck']
     ds_list = []
     print(f"In do datatsets, selecting {node_feature_list} \n\n {edge_feature_list}")
-    for n in n_range:
-        for ds in datasets:
-            print(f"processing{n}_{ds}")
-            pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
-            root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
-            dataset_name =f'{ds}_n_{n}'
-            unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
-            if len(node_feature_list)>0:
-                sliced = unstructured.select_features(node_feature_list, edge_feature_list)
-                ds_list.append(sliced)
-            else:
-                ds_list.append(unstructured)
+    for ds in datasets:
+        n_range =  [50,60,70,80,90, 100, 125, 150,200]
+        for n in n_range:
+
+                print(f"processing{n}_{ds}")
+                pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
+                root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
+                dataset_name =f'{ds}_n_{n}'
+                unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
+                if len(node_feature_list)>0:
+                    sliced = unstructured.select_features(node_feature_list, edge_feature_list)
+                    ds_list.append(sliced)
+                else:
+                    ds_list.append(unstructured)
+
+        # for n in n_range:
+        #     print(f"processing{n}_{ds}")
+        #     pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
+        #     root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
+        #     dataset_name =f'{ds}_n_{n}'
+        #     unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
+        #     if len(node_feature_list)>0:
+        #         sliced = unstructured.select_features(node_feature_list, edge_feature_list)
+        #         ds_list.append(sliced)
+        #     else:
+        #         ds_list.append(unstructured)
     my_dataset = ConcatDataset(ds_list)
     return my_dataset
 
@@ -250,6 +264,7 @@ def setup_and_train( hidden_channels,  learning_rate, epochs, heads, batch_size,
         in_channels = node_tensor.size()[1]
     if model =="MLP":
         model = GraphRegressorMLP(in_channels, hidden_channels, out_channels, edge_dim=edge_channels, pooling=pooling).to(device)
+
     elif model == "GAT":
         model =  GraphGATClassifier(in_channels, hidden_channels, out_channels, edge_dim=edge_channels, heads=heads).to(device)
     elif model == "GAT3":
@@ -346,7 +361,8 @@ def setup_and_train_classifier( hidden_channels,  learning_rate, epochs, heads, 
     print("using device:", device, " Setting model: ", model)
     if model =="MLP":
         model = EdgeClassifierMLP(in_channels, hidden_channels, out_channels, edge_dim=edge_channels).to(device)
-
+    elif model == "MLP4":
+        model = EdgeClassifierMLP4Layer(in_channels, hidden_channels, out_channels, edge_dim=edge_channels).to(device)
     elif model == "GAT":
         model = EdgeClassifierGAT(in_channels, hidden_channels, out_channels, edge_dim = edge_channels, heads=heads).to(device)
     elif model == "GAT3":

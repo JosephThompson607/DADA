@@ -360,7 +360,7 @@ def constraint_elim(albp_problem, mh_methods, n_tries, ex_fp, save_folder, n_que
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, salbp1_prioirity_solve,selector_method='beam_mh',seed=trial_seed, q_check_tl=q_check_tl, beam_config=beam_config, **xp_config['priority'])
             res_list.append({**metadata, **priority_res, 'method':'priority'})
         # print("calculating ml results now")
-        if any(method in mh_methods for method in ["beam_ml", "all", "fast", 'machineLearning', "beamsearch"]):  
+        if any(method in mh_methods for method in ["beam_ml", "xgboost","all", "fast", 'machineLearning', "beamsearch"]):  
             priority_res= do_greedy_run(albp_problem, n_queries, G_max_close, ex_fp, best_first_ml_choice_edge,selector_method="beam_ml", seed=trial_seed,ml_model=ml_model, q_check_tl=q_check_tl, beam_config=beam_config, ml_config = ml_config)
             res_list.append({**metadata, **priority_res, 'method':'xgboost'})
 

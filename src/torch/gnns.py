@@ -71,6 +71,36 @@ class EdgeClassifierMLP(torch.nn.Module):
         edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
         
         return self.edge_mlp(edge_features)
+
+
+class EdgeClassifierMLP4Layer(torch.nn.Module):
+    '''Indicates if an edge has an impact on the SALBP lower bound'''
+    def __init__(self, in_channels, hidden_channels, out_channels, edge_dim=None):
+        super(EdgeClassifierMLP4Layer, self).__init__()
+        edge_input_dim = 2 * hidden_channels + edge_dim
+
+        self.node_mlp = torch.nn.Sequential(
+            torch.nn.Linear(in_channels, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, hidden_channels),
+            torch.nn.ReLU(),
+        )
+            
+        self.edge_mlp = torch.nn.Sequential(
+            torch.nn.Linear(edge_input_dim, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, out_channels)
+        )
+        
+    def forward(self, data,**data_kwargs):
+        x = data.x
+        edge_index = data.edge_index
+        parents, children = edge_index
+        edge_data = data.edge_attr
+        x = self.node_mlp(x)
+        edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
+        
+        return self.edge_mlp(edge_features)
     
 class EdgeClassifier(torch.nn.Module):
     '''Indicates if an edge has an impact on the SALBP lower bound'''
