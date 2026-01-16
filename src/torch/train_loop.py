@@ -31,6 +31,7 @@ from datetime import datetime
 sys.path.append(os.path.abspath("torch"))
 from salb_dataset import *
 from gnns import *
+from sklearn.model_selection import KFold
 
 def load_checkpoint(model, optimizer, checkpoint_path, device):
     """Load model and optimizer from checkpoint."""
@@ -46,6 +47,198 @@ def load_checkpoint(model, optimizer, checkpoint_path, device):
     print(f'Loaded checkpoint from epoch {epoch}')
     return epoch, train_losses, test_losses, sample_data
 
+
+def train_single_fold(model, train_loader, val_loader, optimizer, loss_fn, device, epochs, early_stopping_patience=10):
+    """
+    Train for one fold with early stopping.
+    Returns best validation loss.
+    """
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
+    train_losses = []
+    val_losses = []
+    for epoch in range(epochs):
+        # Training
+        model.train()
+        total_train_loss = 0
+        for data in train_loader:
+            #print("HEre is the data:, ",data)
+            data = data.to(device)
+            optimizer.zero_grad()
+            out = model(data)
+            loss = loss_fn(out.squeeze(1), data.y.float())
+            loss.backward()
+            optimizer.step()
+            total_train_loss += loss.item()
+        print("epoch's training is finished")
+        train_loss = total_train_loss / len(train_loader)
+        train_losses.append(train_loss)
+        # Validation
+        model.eval()
+        total_val_loss = 0
+        print("at validation step")
+        with torch.no_grad():
+            for data in val_loader:
+                data = data.to(device)
+                out = model(data)
+                loss = loss_fn(out.squeeze(1), data.y.float())
+                total_val_loss += loss.item()
+        
+        val_loss = total_val_loss / len(val_loader)
+        val_losses.append(val_loss)
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = model.state_dict().copy()
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= early_stopping_patience:
+            print(f'Early stopping at epoch {epoch+1}')
+            break
+    
+    # Restore best model
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+    
+    return best_val_loss, train_loss, epoch
+
+
+def setup_and_train_with_cv(
+    hidden_channels, 
+    learning_rate, 
+    epochs, 
+    heads, 
+    batch_size,
+    model_name,
+    checkpoint_dir,
+    x_features = [],
+    edge_features=[],
+    node_features=[], 
+    graph_features=[], 
+    seed=None, pooling='mean',
+    n_folds=3, debug=False):
+    """
+    Train with k-fold cross-validation for hyperparameter tuning.
+    """
+    # Prepare dataset
+    if debug:
+        print("Running debug run, setting epochs to 2 and limiting dataset")
+        epochs=2
+    my_dataset = do_datasets(x_features, edge_features, debug)
+    sample_data = my_dataset[0]
+    in_channels = my_dataset[0].x.size()[1] 
+    edge_channels = my_dataset[0].edge_attr.size()[1]
+    
+    transform = NormalizeFeatures()
+    my_dataset.transform = transform
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Dataset size: {len(my_dataset)}, Device: {device}, Model: {model_name}")
+    
+    # Get node/graph features if needed
+    if "Stats" in model_name:
+        node_tensor, graph_tensor, node_indices, graph_indices = extract_feature_tensors(
+            my_dataset[0].x, my_dataset[0].x_cols, node_features, graph_features
+        )
+        graph_channels = graph_tensor.size()[1]
+        in_channels = node_tensor.size()[1]
+        print("Organized data for stats GNN")
+    else:
+        node_indices = graph_indices = graph_channels = None
+    
+    # K-Fold Cross Validation
+    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    fold_losses = []
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(my_dataset)):
+        print(f'\n--- Fold {fold + 1}/{n_folds} ---')
+        
+        # Create data loaders for this fold
+        train_subset = torch.utils.data.Subset(my_dataset, train_idx)
+        val_subset = torch.utils.data.Subset(my_dataset, val_idx)
+        print("Setting up data loader")
+        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+        print("sample data taken ")
+        val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+        print("initializing model")
+        # Initialize fresh model for this fold
+        model = create_model(
+            model_name, in_channels, hidden_channels, edge_channels, 
+            heads, graph_channels, node_indices, graph_indices, pooling, device
+        )
+        
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        loss_fn = nn.MSELoss()
+        print("Model initialized, training...")
+        # Train this fold
+        best_val_loss, train_loss, epoch = train_single_fold(
+            model, train_loader, val_loader, optimizer, loss_fn, 
+            device, epochs, early_stopping_patience=10
+        )
+              
+        best_path = os.path.join(checkpoint_dir, f'fold_{fold+1}_best_model.pt')
+
+        torch.save({
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'train_loss': train_loss,
+            'eval_loss': best_val_loss,
+            'sample_data':sample_data.to("cpu")
+            }, best_path)
+        print(f'Saved best model for fold {fold+1} with eval loss: {best_val_loss:.4f}')
+        fold_losses.append(best_val_loss)
+        print(f'Fold {fold + 1} best validation loss: {best_val_loss:.4f}')
+    
+    # Calculate overall performance
+    mean_loss = np.mean(fold_losses)
+    std_loss = np.std(fold_losses)
+    
+    print(f'\n=== Cross-Validation Results ===')
+    print(f'Mean validation loss: {mean_loss:.4f} (+/- {std_loss:.4f})')
+    print(f'Individual fold losses: {[f"{loss:.4f}" for loss in fold_losses]}', flush=True)
+    
+    return best_val_loss, train_loss
+
+
+def create_model(model_name, in_channels, hidden_channels, edge_channels, 
+                 heads, graph_channels, node_indices, graph_indices, pooling, device):
+    """Helper function to create model based on name."""
+    out_channels = 1
+    
+    if model_name == "MLP":
+        model = GraphRegressorMLP(in_channels, hidden_channels, out_channels, 
+                                  edge_dim=edge_channels, pooling=pooling)
+    elif model_name == "GAT":
+        model = GraphGATClassifier(in_channels, hidden_channels, out_channels, 
+                                   edge_dim=edge_channels, heads=heads)
+    elif model_name == "GAT3":
+        model = GraphGATClassifier3Layer(in_channels, hidden_channels, out_channels, 
+                                        edge_dim=edge_channels, heads=heads)
+    elif model_name == "GCN":
+        model = GraphClassifier(in_channels, hidden_channels, out_channels)
+    elif model_name == "GCN3":
+        model = GraphClassifier3Layer(in_channels, hidden_channels, out_channels)
+    elif model_name == "GATStats":
+        model = GraphGATClassifierStats(in_channels, graph_channels, node_indices, 
+                                       graph_indices, hidden_channels, out_channels, 
+                                       edge_dim=edge_channels, heads=heads, pooling=pooling)
+    elif model_name == "GAT3Stats":
+        model = GraphGAT3LayerClassifierStats(in_channels, graph_channels, node_indices, 
+                                              graph_indices, hidden_channels, out_channels, 
+                                              edge_dim=edge_channels, heads=heads, pooling=pooling)
+    elif model_name == "GCNStats":
+        model = GraphClassifierStats(in_channels, graph_channels, node_indices, 
+                                     graph_indices, hidden_channels, out_channels, pooling=pooling)
+    elif model_name == "GCN3Stats":
+        model = GraphClassifier3LayerStats(in_channels, graph_channels, node_indices, 
+                                          graph_indices, hidden_channels, out_channels, pooling=pooling)
+    else:
+        raise ValueError(f"GNN Architecture '{model_name}' does not exist.")
+    
+    return model.to(device)
 
 def train_with_checkpoints(
     model,
@@ -199,39 +392,37 @@ def extract_feature_tensors(data_x, x_cols, node_features, graph_features):
     return node_tensor, graph_tensor, node_indices, graph_indices
 
 
-def do_datasets(node_feature_list = [], edge_feature_list = []):
+def do_datasets(node_feature_list = [], edge_feature_list = [], debug=False):
     
     #n_range =  [50,]
     datasets = ['unstructured', 'chains', 'bottleneck']
     ds_list = []
     print(f"In do datatsets, selecting {node_feature_list} \n\n {edge_feature_list}")
+    #n_range =  [50,60,70,80,90, 100, 125, 150,200]
+    n_range =  [50, 60, 70,80,90, 100, 125]
+
+    if debug:
+        n_range = [150]
+        datasets=['unstructured']
     for ds in datasets:
-        n_range =  [50,60,70,80,90, 100, 125, 150,200]
         for n in n_range:
+            print(f"processing{n}_{ds}")
+            pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
+            root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
+            dataset_name =f'{ds}_n_{n}'
+            unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
 
-                print(f"processing{n}_{ds}")
-                pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
-                root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
-                dataset_name =f'{ds}_n_{n}'
-                unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
-                if len(node_feature_list)>0:
-                    sliced = unstructured.select_features(node_feature_list, edge_feature_list)
-                    ds_list.append(sliced)
-                else:
-                    ds_list.append(unstructured)
-
-        # for n in n_range:
-        #     print(f"processing{n}_{ds}")
-        #     pkl_fp = f"/home/jot240/DADA/DADA/data/pereria_results/pytorch_ready/{ds}_n_{n}_geo_ready.pkl"
-        #     root_fp = f"/home/jot240/DADA/DADA/data/pytorch_datasets/regression/"
-        #     dataset_name =f'{ds}_n_{n}'
-        #     unstructured = create_and_load_salbp_dataset(root_fp, pkl_fp, dataset_name)
-        #     if len(node_feature_list)>0:
-        #         sliced = unstructured.select_features(node_feature_list, edge_feature_list)
-        #         ds_list.append(sliced)
-        #     else:
-        #         ds_list.append(unstructured)
+            if len(node_feature_list)>0:
+                sliced = unstructured.select_features(node_feature_list, edge_feature_list)
+            else:
+                sliced = unstructured
+            for data in sliced:
+                if not hasattr(data, 'y_edge'):
+                    print("MISSING y edge")
+                    data.y_edge = torch.tensor([])  
+            ds_list.append(sliced)
     my_dataset = ConcatDataset(ds_list)
+
     return my_dataset
 
 

@@ -364,6 +364,19 @@ class SALBPGNNDataset(InMemoryDataset):
         
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+
+    def __getitem__(self, idx):
+        data = super().__getitem__(idx)
+        
+        # Ensure y_edge exists for batching for graph regression
+        if not hasattr(data, 'y_edge') or data.y_edge is None:
+            data.y_edge = torch.tensor([])
+        if not hasattr(data, 'edge_labels') or data.edge_labels is None:
+            data.edge_labels = []
+
+
+        
+        return data
     
     def select_features(self, selected_features_node: List[str], selected_features_edge: Optional[List[str]] = None):
         """
@@ -427,7 +440,11 @@ class FeatureSlicedDataset:
         if self.selected_features_edge is not None:
                 data.edge_cols = self.selected_features_edge
                 data.edge_attr = data.edge_attr[:, self.selected_indices_edge]
-
+        #Regression dataset sometimes does not have this information
+        if not hasattr(data, 'y_edge') or data.y_edge is None:
+            data.y_edge = torch.tensor([])
+        if not hasattr(data, 'edge_labels') or data.edge_labels is None:
+            data.edge_labels = []
         return data
     
     def __repr__(self):

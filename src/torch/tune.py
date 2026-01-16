@@ -5,14 +5,27 @@ from datetime import datetime
 from types import SimpleNamespace
 import csv
 import itertools
+from sklearn.model_selection import KFold
+import numpy as np
+from torch_geometric.loader import DataLoader
+from torch_geometric.transforms import NormalizeFeatures
+
+from gnns import *
 
 from train_loop import (
     load_yaml_config,
     merge_config_with_cli,
     select_gnn_features,
+    train_with_checkpoints,
     setup_and_train_classifier,
+    do_datasets,
     setup_and_train,
+    setup_and_train_with_cv,
 )
+
+
+
+
 
 
 # --------------------------------------------------------
@@ -22,15 +35,18 @@ FEATURE_CONFIG_FILES = [
 #    "data/ml_models/hyper_parameter/features/nn/edge_basic.yaml",
 #    "data/ml_models/hyper_parameter/features/nn/edge_full.yaml",
 #    "data/ml_models/hyper_parameter/features/nn/edge_light.yaml",
-    "data/ml_models/hyper_parameter/features/nn/edge_no_rw_no_edgeeval.yaml",
+    #"data/ml_models/hyper_parameter/features/nn/edge_no_rw_no_edgeeval.yaml",
+"data/ml_models/hyper_parameter/features/continuous/graph_regression_grapheval.yaml"
 ]
 
 # --------------------------------------------------------
 # 2. Architectures
 # --------------------------------------------------------
 #ARCHITECTURES = ["GAT","GAT3", "GCN", "GCN3"]
-ARCHITECTURES = [ "GCNStats", "GCN3Stats", "MLP"]
+#ARCHITECTURES = [ "GCNStats", "GCN3Stats", "MLP"]
+ARCHITECTURES = [  "MLP"]
 
+#ARCHITECTURES = [ "GCNStats"]
 #ARCHITECTURES = ["GATStats","GAT3Stats", "GCNStats", "GCN3Stats", "MLP"]
 #ARCHITECTURES = ["GATStats"]
 #ARCHITECTURES = ["MLP4"]
@@ -43,7 +59,7 @@ SEARCH_SPACE = {
     "hidden_channels": [32, 64, 128],
     #"hidden_channels": [ 64, 128],
     "learning_rate": [1e-4, 3e-4, 1e-3, 3e-3],
-    "epochs": [ 300],
+    "epochs": [ 150],
    "heads": [8],               # used for GAT
   # "heads":8,
     "batch_size": [64, 128, 256],
@@ -94,8 +110,10 @@ def unified_search(
     output_dir,
     search_space=SEARCH_SPACE,
     n_trials=None,
-    data_seed=None
+    data_seed=None,
+    debug=False
 ):
+    output_dir = output_dir + datetime.now().strftime('%Y%m%d_%H%M%S')
     os.makedirs(output_dir, exist_ok=True)
 
     csv_filename = f"{search_type}_search_results_{model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -227,55 +245,59 @@ def unified_search(
         # -------------------------------------------------------------
         print(f"📁 Saving outputs to: {trial_output}")
 
-        try:
-            if cfg.model_type == "edge_classification":
-                losses_dict = setup_and_train_classifier(
-                    hidden_channels=cfg.hidden_channels,
-                    learning_rate=cfg.learning_rate,
-                    epochs=cfg.epochs,
-                    heads=cfg.heads,
-                    batch_size=cfg.batch_size,
-                    model=cfg.architecture,
-                    checkpoint_dir=cfg.checkpoint_dir,
-                    x_features=x_features,
-                    node_features=node_features,
-                    edge_features=edge_features,
-                    graph_features=graph_features,
-                    seed=data_seed,
-                )
 
-            elif cfg.model_type == "graph_regression":
-                losses_dict = setup_and_train(
-                    hidden_channels=cfg.hidden_channels,
-                    learning_rate=cfg.learning_rate,
-                    epochs=cfg.epochs,
-                    heads=cfg.heads,
-                    batch_size=cfg.batch_size,
-                    model=cfg.architecture,
-                    checkpoint_dir=cfg.checkpoint_dir,
-                    x_features=x_features,
-                    node_features=node_features,
-                    edge_features=edge_features,
-                    graph_features=graph_features,
-                    seed=data_seed,
-                    pooling = cfg.pooling,
-                )
-
+        if cfg.model_type == "edge_classification":
+            losses_dict = setup_and_train_classifier(
+                hidden_channels=cfg.hidden_channels,
+                learning_rate=cfg.learning_rate,
+                epochs=cfg.epochs,
+                heads=cfg.heads,
+                batch_size=cfg.batch_size,
+                model=cfg.architecture,
+                checkpoint_dir=cfg.checkpoint_dir,
+                x_features=x_features,
+                node_features=node_features,
+                edge_features=edge_features,
+                graph_features=graph_features,
+                seed=data_seed,
+            )
             best_train_loss = min(losses_dict["train_losses"]) if losses_dict["train_losses"] else None
             best_test_loss = min(losses_dict["test_losses"]) if losses_dict["test_losses"] else None
             final_train_loss = losses_dict["train_losses"][-1] if losses_dict["train_losses"] else None
             final_test_loss = losses_dict["test_losses"][-1] if losses_dict["test_losses"] else None
-            status = "SUCCESS"
-            error_message = ""
 
-        except Exception as e:
-            print(f"❌ Trial {idx} failed: {str(e)}")
-            best_train_loss = None
-            best_test_loss = None
-            final_train_loss = None
-            final_test_loss = None
-            status = "FAILED"
-            error_message = str(e)
+        elif cfg.model_type == "graph_regression":
+            best_train_loss,best_test_loss = setup_and_train_with_cv(
+                hidden_channels=cfg.hidden_channels,
+                learning_rate=cfg.learning_rate,
+                epochs=cfg.epochs,
+                heads=cfg.heads,
+                batch_size=cfg.batch_size,
+                model_name=cfg.architecture,
+                checkpoint_dir=cfg.checkpoint_dir,
+                x_features=x_features,
+                node_features=node_features,
+                edge_features=edge_features,
+                graph_features=graph_features,
+                seed=data_seed,
+                pooling = cfg.pooling,
+                n_folds=3,
+                debug=debug
+            )
+            final_train_loss, final_test_loss = best_train_loss, best_test_loss
+
+
+        status = "SUCCESS"
+        error_message = ""
+
+        # except Exception as e:
+        #     print(f"❌ Trial {idx} failed: {str(e)}")
+        #     best_train_loss = None
+        #     best_test_loss = None
+        #     final_train_loss = None
+        #     final_test_loss = None
+        #     status = "FAILED"
+        #     error_message = str(e)
 
         # -------------------------------------------------------------
         # Step D: Write CSV entry
@@ -306,7 +328,7 @@ def unified_search(
         print(f"✅ Trial {idx} complete.")
         if status == "SUCCESS":
             print(f"   Best train loss: {best_train_loss}")
-            print(f"   Best test loss: {best_test_loss}")
+            print(f"   Best test loss: {best_test_loss}", flush=True)
 
     print("\n" + "=" * 60)
     print(f"🎉 {search_type.capitalize()} search complete. Results written to {csv_path}")
@@ -331,7 +353,7 @@ def main():
 
     parser.add_argument("--output_dir", type=str, default="tuning_runs",
                         help="Directory to store trial results")
-
+    parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
     unified_search(
@@ -339,7 +361,8 @@ def main():
         n_trials=args.n_trials,
         model_type=args.model_type,
         output_dir=args.output_dir,
-        data_seed=args.data_seed
+        data_seed=args.data_seed,
+        debug=args.debug
     )
 
 

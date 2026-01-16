@@ -133,7 +133,7 @@ def merge_node_data(node_feat_df, salbp_inst, instance_name, debugging=False):
     node_df = node_feat_df[node_feat_df['instance']== instance_name].copy()
     node_df.drop(columns=['instance'], inplace=True)
         
-    task_df = pd.DataFrame(list(salbp_inst['task_times'].items()), columns=["node", "value"])
+    task_df = pd.DataFrame(list(salbp_inst['task_times'].items()), columns=["node", "weight"])
     task_df["node"] = task_df["node"].astype(int)
     node_df["node"] = node_df["node"].astype(int)
     task_df = task_df.merge(node_df, on="node", how= "left").fillna(0)
@@ -380,22 +380,6 @@ def albp_to_features_nn(alb_instance, salbp_type="salbp_1", cap_constraint=None,
         edge_data, node_data = get_combined_edge_and_graph_data(alb_instance, graph_data)
         profile_stats['get_combined_edge_and_graph_data'] = time.perf_counter() - t_start
     
-    # Convert to DataFrame
-    
-    # Print profile summary
-    # print("\n=== PROFILE: albp_to_features ===")
-    # print(f"Total time: {profile_stats['function_total']:.4f}s")
-    # print(f"SALBP type: {salbp_type}")
-    # print(f"  instance_parsing:                   {profile_stats['instance_parsing']:.4f}s ({profile_stats['instance_parsing']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"  get_graph_metrics:                  {profile_stats['get_graph_metrics']:.4f}s ({profile_stats['get_graph_metrics']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"  get_time_stats:                     {profile_stats['get_time_stats']:.4f}s ({profile_stats['get_time_stats']/profile_stats['function_total']*100:.1f}%)")
-    # if profile_stats['generate_priority_sol_stats'] > 0:
-    #     print(f"  generate_priority_sol_stats:        {profile_stats['generate_priority_sol_stats']:.4f}s ({profile_stats['generate_priority_sol_stats']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"  dict_merging:                       {profile_stats['dict_merging']:.4f}s ({profile_stats['dict_merging']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"  get_combined_edge_and_graph_data:   {profile_stats['get_combined_edge_and_graph_data']:.4f}s ({profile_stats['get_combined_edge_and_graph_data']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
-    # print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
-    # print("=" * 35)
     
     return graph_data, node_data, edge_data
 
@@ -456,6 +440,7 @@ def edge_list_to_tensor(edge_data, edge_level_features, edge_label_df=None):
 def geo_from_albp_dict(alb_instance, x_features, edge_level_features, y_graph=None, graph_label_cols=None, edge_label_df = None, salbp_type="salbp_1", cap_constraint=None, G_max_red=None, G_max_close=None, n_random=100, n_edge_random=100, feature_types={"all"}, return_assignments = False):
     instance_name = str(alb_instance['name']).split('/')[-1].split('.')[0]
     graph_data, node_data, edge_data = albp_to_features_nn(alb_instance, salbp_type=salbp_type, cap_constraint=cap_constraint, G_max_red=G_max_red, G_max_close=G_max_close, n_random=n_random, n_edge_random=n_edge_random, feature_types=feature_types, return_assignments = return_assignments)
+    print("Here are the x_features", x_features)
     x= get_x_tensor(node_data,graph_data, x_features)
     edge_index, edge_features, y_edge, edge_labels = edge_list_to_tensor(edge_data, edge_level_features, edge_label_df)
     data = Data(
@@ -470,6 +455,9 @@ def geo_from_albp_dict(alb_instance, x_features, edge_level_features, y_graph=No
                 edge_attr=edge_features,
                 edge_cols=edge_level_features
             )
+
+
+
     # all_data = {'instance':instance_name, 'edges': edge_index, 'edge_features':edge_features,'edge_label_values':edge_label_values, 'edge_labels':edge_labels,'features':x, 
     #                           'graph_labels':graph_label_cols, 'graph_label_values':graph_labels, 'x_cols':x_features,'node_level_features':None,
     #                           'graph_level_features':None, 'edge_level_features':edge_level_features}
@@ -765,8 +753,10 @@ def main():
                         'avg_tasks_per_stage']
 
     node_level_feats =  [
+                        'parent_weight',
                         'parent_pos_weight',
                         'parent_stage',
+                        'child_weight',
                         'child_pos_weight',
                         'child_stage',
                         'parent_in_degree',
@@ -824,9 +814,11 @@ def main():
                         'stations_delta',
                         'weight_sum',]
 
-    n_range = [70, 80, 125, 150,200]
+    #n_range = [70, 80, 125, 150,200]
+    n_range =[125]
     #n_range = [50, 60, 90, 100]
-    datasets = ["unstructured", "chains", "bottleneck"]
+    #datasets = ["unstructured", "chains", "bottleneck"]
+    datasets = ['unstructured']
     # n_range = [50]
     # datasets = ["unstructured"]
 

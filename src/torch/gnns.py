@@ -788,7 +788,6 @@ class GraphRegressorMLP(torch.nn.Module):
         
         # Get node embeddings
         x = self.node_mlp(x)
-        
         # Get edge embeddings
         edge_features = torch.cat([x[parents], x[children], edge_data], dim=1)
         edge_embeddings = self.edge_mlp(edge_features)
