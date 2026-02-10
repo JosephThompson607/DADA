@@ -244,7 +244,7 @@ def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint=None, G_
     # print(f"  dataframe_conversion:               {profile_stats['dataframe_conversion']:.4f}s ({profile_stats['dataframe_conversion']/profile_stats['function_total']*100:.1f}%)")
     # print(f"Rows in result: {len(final_data)}, n_random solutions: {n_random}")
     # print("=" * 35)
-    
+    final_data['feature_calculation_tt'] = time.time() - start
     return final_data
 
 # def albp_to_features(alb_instance, salbp_type="salbp_1", cap_constraint=None, n_random=100, n_edge_random=0, feature_types={"all"}):

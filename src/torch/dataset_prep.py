@@ -440,7 +440,6 @@ def edge_list_to_tensor(edge_data, edge_level_features, edge_label_df=None):
 def geo_from_albp_dict(alb_instance, x_features, edge_level_features, y_graph=None, graph_label_cols=None, edge_label_df = None, salbp_type="salbp_1", cap_constraint=None, G_max_red=None, G_max_close=None, n_random=100, n_edge_random=100, feature_types={"all"}, return_assignments = False):
     instance_name = str(alb_instance['name']).split('/')[-1].split('.')[0]
     graph_data, node_data, edge_data = albp_to_features_nn(alb_instance, salbp_type=salbp_type, cap_constraint=cap_constraint, G_max_red=G_max_red, G_max_close=G_max_close, n_random=n_random, n_edge_random=n_edge_random, feature_types=feature_types, return_assignments = return_assignments)
-    print("Here are the x_features", x_features)
     x= get_x_tensor(node_data,graph_data, x_features)
     edge_index, edge_features, y_edge, edge_labels = edge_list_to_tensor(edge_data, edge_level_features, edge_label_df)
     data = Data(
@@ -568,7 +567,6 @@ def process_one_edge_res(args):
         edge_level_feats,
         #edge_labels=['is_less_max', 'n_stations']
     )
-    print("HERE IS geo ready", geo_ready)
     #out_fp = f"/home/jot240/DADA/DADA/data/results/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
     out_fp = f"/project/def-lahrichi/josephT/{ds}_{n}/{ds}_n_{n}_geo_ready_edge_res.pkl"
     with open(out_fp, "wb") as f:

@@ -89,8 +89,6 @@ class NNModel():
                                     feature_types=self.feature_types, 
                                     return_assignments = return_assignments)
         
-        print(my_geo)
-        print('geo cols ', my_geo.x_cols)
         # Create the same transform
         # transform = NormalizeFeatures()
         # data_new = transform(my_geo)
