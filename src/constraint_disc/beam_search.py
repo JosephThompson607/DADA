@@ -129,7 +129,7 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
     #Initial solution
     if mode == 'beam_mh':
         if not init_sol:
-            res = mh(new_salbp, **mhkwargs)
+            res = mh(orig_salbp, **mhkwargs)
         else:
             res = init_sol
     elif mode in  ['beam_prob', 'beam_weight']:
@@ -141,12 +141,14 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
     best_sol = Solution(-1,-1,res['n_stations'],None,remaining_budget, []  )
     queue = [init_sol]  # Queue of Solution(obj_val, removed_edges) 
     for c_d in range(depth):
-        elites = EliteSet(width)
+        if len(queue) > 0: #Reset for next go around
+            elites = EliteSet(width)
 
         while len(queue) > 0:
             old_sol= queue.pop(0)
             removed_edges = old_sol.edges
             edges = get_possible_edges(G_max_red, G_min,remaining_budget=remaining_budget, ban_list=removed_edges)
+            print("Here are the edges", edges)
             for i, edge in enumerate(edges):
                         #This is to avoid repeat computations (i.e. e1->e2, e2->e1)
                 edge_prob = edge[2]
@@ -198,6 +200,7 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
                 if sol >= best_sol:
                     best_sol = sol
                 elites.add(sol) #Adds solution if higher reward, otherwise ignores it
+                print("Elites", elites.get_elites())
         if c_d > 1:
             if elites.same_first_edge():
                 
@@ -208,6 +211,7 @@ def beam_search_mh( orig_salbp, G_max_close,G_min, mh, remaining_budget = 1e6, r
     obj = best_sol.accumulated_reward
     edges = best_sol.edges
     t_cost = best_sol.query_cost
+    print('elites', elites.get_elites(sort_elites=True))
     return edges[0], obj, t_cost
 
 #best_first_ml_choice_edge(edges, orig_salbp, G_max_red, ml_model,**new_kwargs):

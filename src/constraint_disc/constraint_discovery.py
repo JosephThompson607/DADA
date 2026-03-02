@@ -5,14 +5,14 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import pandas as pd
 import sys
-
+sys.path.append('src')
 import time
 import xgboost as xgb
 import copy
 import yaml
 from ml_search import *
 from set_new_edges import *
-sys.path.append('src')
+
 from beam_search import beam_search_mh, beam_search_ml
 from metrics.graph_features import calculate_order_strength
 from datetime import date

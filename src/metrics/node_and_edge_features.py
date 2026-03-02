@@ -226,7 +226,7 @@ def priority_edge_solves(edge, alb, n_random=100):
 
 
 def get_combined_edge_and_graph_data(
-    alb, graph_data, G_max_close=None, n_random_solves=0,
+    old_alb, graph_data, G_max_close=None, n_random_solves=0,
     feature_types={"all"}
 ):
     """Gets edge and graph data for an instance — profiled version"""
@@ -237,6 +237,12 @@ def get_combined_edge_and_graph_data(
     timings = {}
 
     # ----------------- Graph setup -----------------
+    alb = old_alb.copy()
+    if alb['cycle_time'] != 1000:
+        print('cycle time is', alb['cycle_time'],'normalizing to 1000 for edge features')
+        constant = 1000/alb['cycle_time'] 
+        alb['task_times'] = {k: v * constant for k, v in alb['task_times'].items()}
+
     t0 = time.time()
     edge_list = []
     G = nx.DiGraph()

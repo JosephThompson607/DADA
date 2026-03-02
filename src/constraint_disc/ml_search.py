@@ -30,7 +30,7 @@ def predictor(orig_salbp, G_max_close, G_max_red, ml_model, ml_config, **_):
     t0 = time.perf_counter()
     edge_features = albp_to_features(test_salbp, salbp_type="salbp_1", 
                                      G_max_red=G_max_red, G_max_close=G_max_close, 
-                                     cap_constraint=None, n_random=ml_config['n_random'], 
+                                     cap_constraint=orig_salbp['cycle_time'], n_random=ml_config['n_random'], 
                                      feature_types=set(ml_config['feature_types']), 
                                      n_edge_random=ml_config['n_edge_random'])
     profile['albp_to_features'] = time.perf_counter() - t0

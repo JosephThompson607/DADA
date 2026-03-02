@@ -400,12 +400,14 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
         orig_prec = len(SALBP_dict_orig["precedence_relations"])
         #original problem
         SALBP_dict = deepcopy(SALBP_dict_orig)
+        start_time = time.time()
         write_to_alb(SALBP_dict, temp_alb_path)
         output = subprocess.run([ex_fp, "-m", f"{branch}", "-b", "1", "-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # print("Return code:", output.returncode)
         # print("STDOUT:", output.stdout.decode())
         
         salbp_sol, optimal, cpu, bin_lb = parse_bb_salb1_out(output)
+        end_time = time.time()-start_time
         if not bin_lb:
             print("STDERR:", output.stderr.decode() if output.stderr else "No stderr captured")
             print("ERROR, no bin_lb", output)
@@ -416,7 +418,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
             "no_stations": salbp_sol,
             "original_n_precedence_constraints": orig_prec,
             "optimal": optimal,
-            "cpu": cpu,
+            "cpu": end_time,
             "bin_lb": bin_lb
         }
         results.append(orig_prob)
@@ -627,18 +629,30 @@ def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **k
     return best
 
 
-def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config, **kwargs):
-    xp_config, ml_config, ml_model = load_and_backup_configs(mh_config, backup_folder=out_fp)
+def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config = None, **kwargs):
+    mh_kwargs = None
+    if mh_config:
+        xp_config, ml_config, ml_model = load_and_backup_configs(mh_config, backup_folder=out_fp)
     if mh_func == "salbp1_vdls_dict":
         mh_func= salbp1_vdls_dict
         mh_kwargs = xp_config['vdls']
     elif mh_func == "salbp1_priority_dict":
         mh_func = salbp1_prioirity_solve
-        mh_kwargs = xp_config['priority']
+        
+        mh_kwargs={}
+        if mh_config:
+            mh_kwargs = xp_config['priority']
 
     elif mh_func == "salbp1_hoff":
         mh_func = salbp1_hoff_solve
-        mh_kwargs = xp_config['hoff']
+        mh_kwargs={}
+        if mh_config:
+            mh_kwargs = xp_config['hoff']
+    elif mh_func == "salbp1_mhh":
+        mh_func = salbp1_hoff_solve
+        mh_kwargs={}
+        if mh_config:
+            mh_kwargs = xp_config['hoff']
 
         
     else:
@@ -864,7 +878,7 @@ def main():
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
     parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
     parser.add_argument('--backup_name', type=str, required=False, default="results", help='name for intermediate saves')
-    parser.add_argument('--mh_config_fp', type=str, required=False, default="results", help='filepath for mh config file')
+    parser.add_argument('--mh_config_fp', type=str, required=False, help='filepath for mh config file')
     parser.add_argument('--filepath', type=str, required=True, help='filepath for alb dataset')
     parser.add_argument('--instance_name', type=str, required=False, help='start of instance name EX: "instance_n=50_"')
     parser.add_argument('--final_results_fp', type=str, required=True, help='filepath for results, if no error')
@@ -896,6 +910,8 @@ def main():
                 results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
             elif args.heuristic=='hoff':
                 results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_hoff" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+            elif args.heuristic=='mhh':
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_mhh" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
 
         else:
             print("using bbr")
