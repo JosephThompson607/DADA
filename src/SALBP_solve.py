@@ -27,7 +27,7 @@ from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle, 
 import subprocess
 import pandas as pd
 from copy import deepcopy
-import ILS_ALBP as ils 
+import SALBP1_heuristics as ils 
 import time
 from datetime import date
 import shutil
@@ -629,8 +629,16 @@ def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **k
     return best
 
 
-def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config = None, **kwargs):
+def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config = None, overwrite=False,**kwargs):
     mh_kwargs = None
+    instance_fp = alb_dict['name']
+    instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+    if overwrite==False:
+        filename = out_fp+instance_name + ".csv"
+        if os.path.exists(filename):
+            print(filename, " exists, skipping because overwrite is disabled")
+            return
+
     if mh_config:
         xp_config, ml_config, ml_model = load_and_backup_configs(mh_config, backup_folder=out_fp)
     if mh_func == "salbp1_vdls_dict":
@@ -659,10 +667,10 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config = None, **kw
         print(f"Error: given metaheuristic {mh_func} not supported")
     
     orig_prec = len(alb_dict['precedence_relations'])
-    instance_fp = alb_dict['name']
+   
     results = []
     # Extract instance name from file path
-    instance_name = str(instance_fp).split("/")[-1].split(".alb")[0]
+    
 
 
     print("running: ", instance_name, " saving to output ", out_fp)
@@ -719,15 +727,15 @@ def mh_solve_edges(alb_dict, out_fp,mh_func,  time_limit, mh_config = None, **kw
 
     return results
 
-def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit, mh_config):
+def generate_results_from_dict_list_2(alb_files, out_fp,  pool_size, mh_func, time_limit, mh_config, overwrite):
     if not os.path.exists(out_fp):
          os.makedirs(out_fp)
     with multiprocessing.Pool(pool_size) as pool:
-        results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit, mh_config) for alb in alb_files])
+        results = pool.starmap(mh_solve_edges, [(alb, out_fp, mh_func, time_limit, mh_config, overwrite) for alb in alb_files])
     #save_backup(out_fp + backup_name, results)
     return results
 
-def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, stop , mh_func, time_limit, mh_config):
+def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, stop , mh_func, time_limit, mh_config,  overwrite=False):
     '''Solves SALBP instances. You can either pass an entire pickle file to try to solve all of its instances, 
     or an existing results dataframe with the pickle files to try to continue solving an existing dataset'''
     
@@ -754,12 +762,12 @@ def generate_results_from_pickle_2(fp  ,out_fp, res_df ,    pool_size, start, st
             else:
                 print( name, "is already in results, skipping")
 
-        results = generate_results_from_dict_list_2(filtered_files, out_fp, pool_size,mh_func, time_limit, mh_config)
+        results = generate_results_from_dict_list_2(filtered_files, out_fp, pool_size,mh_func, time_limit, mh_config, overwrite)
     else:
         alb_files = open_salbp_pickle(fp)
         if start is not None and stop is not None:
             alb_files = alb_files[start:stop]
-        results =  generate_results_from_dict_list_2(alb_files, out_fp,pool_size, mh_func, time_limit, mh_config)
+        results =  generate_results_from_dict_list_2(alb_files, out_fp,pool_size, mh_func, time_limit, mh_config, overwrite)
     return results
 
 def generate_results_from_dict_list(alb_files, out_fp, ex_fp, backup_name, pool_size, branch, time_limit):
@@ -876,6 +884,8 @@ def main():
     parser.add_argument('--end', type=int, required=False, help='Ending integer (inclusive)')
     parser.add_argument('--n_processes', type=int, required=False, default=1, help='Number of processes to use')
     parser.add_argument('--from_alb_folder', action="store_true", help='Whether to read albs directly from a folder, if false, reads from pickle')
+    parser.add_argument('--overwrite_existing', action="store_true", help='overwrites existing results in folder')
+
     parser.add_argument('--SALBP_solver_fp', type=str, default="../BBR-for-SALBP1/SALB/SALB/salb", help='Filepath for SALBP solver')
     parser.add_argument('--backup_name', type=str, required=False, default="results", help='name for intermediate saves')
     parser.add_argument('--mh_config_fp', type=str, required=False, help='filepath for mh config file')
@@ -907,11 +917,11 @@ def main():
             if args.heuristic=='vdls':
                 results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_vdls_dict" , time_limit = args.time_limit, mh_config = args.mh_config_fp)
             elif args.heuristic=='priority':
-                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_priority_dict" , time_limit = args.time_limit,  mh_config = args.mh_config_fp, overwrite = args.overwrite_existing)
             elif args.heuristic=='hoff':
-                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_hoff" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_hoff" , time_limit = args.time_limit,  mh_config = args.mh_config_fp, overwrite=args.overwrite_existing)
             elif args.heuristic=='mhh':
-                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_mhh" , time_limit = args.time_limit,  mh_config = args.mh_config_fp)
+                results = generate_results_from_pickle_2(args.filepath, args.final_results_fp,res_df = args.res_fp,  pool_size=args.n_processes, start=args.start, stop=args.end, mh_func= "salbp1_mhh" , time_limit = args.time_limit,  mh_config = args.mh_config_fp, overwrite=args.overwrite_existing)
 
         else:
             print("using bbr")

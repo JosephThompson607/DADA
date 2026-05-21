@@ -20,7 +20,7 @@ def calculate_order_strength(G_max_red, G_max_close=None):
         The order strength of the G_max_red.
     """
     if not G_max_close:
-        print("CACULATING TRANSITIVE CLOSURE")
+        # print("CACULATING TRANSITIVE CLOSURE")
         # Calculate the order strength of the G_max_red
         trans_closure = nx.transitive_closure(G_max_red)
     else:

@@ -24,7 +24,7 @@ import glob
 from alb_instance_compressor import parse_alb, write_to_alb, open_salbp_pickle
 import subprocess
 from copy import deepcopy
-import ILS_ALBP as ils 
+import SALBP1_heuristics as ils 
 import ast
 from SALBP_solve import *
 from repair_partial_solves import *

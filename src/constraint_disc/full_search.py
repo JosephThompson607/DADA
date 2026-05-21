@@ -19,7 +19,7 @@ from SALBP_solve import salbp1_bbr_call, parse_alb_results_new_bbr
 
 import yaml
 from copy import deepcopy
-import ILS_ALBP
+import SALBP1_heuristics
 
 def sequence_then_search(orig_salbp, n_xps, res_folder_fp, ex_fp, depth_limit, q_check_tl=10, base_seed=42, n_sorts=2):
     for xp in range(n_xps):

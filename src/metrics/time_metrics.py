@@ -4,7 +4,7 @@ build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-pytho
 sys.path.insert(0, build_dir)
 build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
 sys.path.insert(0, build_dir_2)
-import ILS_ALBP
+import SALBP1_heuristics
 import math
 
 
@@ -30,7 +30,6 @@ def get_time_stats(alb_instance, C=None):
         if 'cycle_time' not in alb_instance:
             raise ValueError('Cycle time not provided, add value to C or to alb_instance')
         C = alb_instance['cycle_time']
-    print("THIS IS C time state", C)
     task_times = list( alb_instance['task_times'].values())
     min_div_c = np.min(task_times) / C
     max_div_c = np.max(task_times) / C

@@ -25,7 +25,7 @@ build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-pytho
 sys.path.insert(0, build_dir)
 build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
 sys.path.insert(0, build_dir_2)
-import ILS_ALBP
+import SALBP1_heuristics
 import multiprocessing
 
 
