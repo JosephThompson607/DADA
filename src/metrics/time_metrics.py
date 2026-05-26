@@ -4,7 +4,7 @@ build_dir = '/Users/letshopethisworks2/CLionProjects/SALBP_ILS/cmake-build-pytho
 sys.path.insert(0, build_dir)
 build_dir_2 = '/home/jot240/DADA/SALBP_ILS/build/'
 sys.path.insert(0, build_dir_2)
-import SALBP1_heuristics
+import SALBP1_heuristics as salbp1
 import math
 
 
@@ -14,7 +14,7 @@ def get_lb6(salbp1_instance, C=1000):
     task_times = [val for val in  salbp1_instance['task_times'].values()]
     if 'cycle_time' in salbp1_instance.keys():
         C = salbp1_instance['cycle_time']
-    lb_6 = ILS_ALBP.calc_salbp_1_lb6(task_times, C)
+    lb_6 = salbp1.calc_salbp_1_lb6(task_times, C)
     return lb_6
 
 

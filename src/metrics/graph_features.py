@@ -472,6 +472,7 @@ def generate_graph_metrics(G_max_red, G_max_close=None):
     res_dict = {
         'n_edges': G_max_red.number_of_edges(),
         'order_strength': order_strength,
+        'avg_deg': G_max_red.number_of_edges()/G_max_red.number_of_nodes(),
         'average_number_of_immediate_predecessors': aip,
         'max_degree': max_degree,
         'max_in_degree': max_in_degree,
@@ -489,6 +490,7 @@ def generate_graph_metrics(G_max_red, G_max_close=None):
         'stages_div_e': n_stages / G_max_red.number_of_edges(),
         'prec_strength': precedence_strength,
         'prec_bias': precedence_bias,
+
         'prec_index': precedence_index,
         'n_isolated_nodes': n_isolated_nodes,
         'share_of_isolated_nodes': n_isolated_nodes / G_max_red.number_of_nodes(),
