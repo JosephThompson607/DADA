@@ -31,8 +31,7 @@ import SALBP1_heuristics as ils
 import time
 from datetime import date
 import shutil
-def salbp1_bbr_call(salbp_dict,ex_fp, branch=1, time_limit=3600, w_bin_pack = True,orig_bbr=True, **kwargs):
-    start = time.time()
+def salbp1_bbr_call(salbp_dict,ex_fp=None, branch=1, time_limit=3600, w_bin_pack = True,orig_bbr=True, **kwargs):
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         write_to_alb(salbp_dict, temp_alb_path)
@@ -533,6 +532,29 @@ def salbp1_mhh_solve(alb_dict,
 
     return {
             **result_dict,  "elapsed_time":end}
+
+def salbp1_tabu_solve(alb_dict, time_limit=1.0, 
+                **kwargs):
+    #print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
+    C = alb_dict['cycle_time']
+    precs = alb_dict['precedence_relations']
+    t_times = [val for _, val in alb_dict['task_times'].items()]
+    N = len(t_times)
+    precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+    start  = time.time()
+    results = ils.tabu_solve_salbp1(
+            C=C,
+            N=N,
+            task_times=t_times,
+            raw_precedence=precs,
+            time_limit=time_limit
+
+        )
+    result_dict = results.to_dict()
+    end = time.time()- start
+
+    return {
+            **result_dict,  "elapsed_time":end}
     
 
 def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
@@ -584,7 +606,7 @@ def salbp1_vdls_dict(alb_dict,time_limit=180, initial_solution = [], **mh_kwargs
             **result_dict, "time_limit":time_limit, "elapsed_time":end}
 
        
-def salbp1_prioirity_dict(alb_dict, n_random=100,seed=None,**mh_kwargs):
+def salbp1_prioirity_dict(alb_dict, n_random=100,seed=None,time_limit=3600,**mh_kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -592,10 +614,10 @@ def salbp1_prioirity_dict(alb_dict, n_random=100,seed=None,**mh_kwargs):
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
     if seed:
-        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed )
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed , time_limit=time_limit)
 
     else:
-        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random )
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random , time_limit=time_limit)
 
     end = time.time()- start
     res_list = []
@@ -604,7 +626,7 @@ def salbp1_prioirity_dict(alb_dict, n_random=100,seed=None,**mh_kwargs):
         res_list.append(result_dict)
     return res_list
 
-def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **kwargs):
+def salbp1_prioirity_solve(alb_dict,time_limit=3600, n_random=100,seed=None, **kwargs):
     C = alb_dict['cycle_time']
     precs = alb_dict['precedence_relations']
     t_times = [val for _, val in alb_dict['task_times'].items()]
@@ -612,9 +634,9 @@ def salbp1_prioirity_solve(alb_dict,time_limit=None, n_random=100,seed=None, **k
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
     if seed:
-        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed )
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, seed=seed , time_limit=time_limit)
     else:
-        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random)
+        results = ils.priority_solve_salbp1(C=C, N=N, task_times= t_times, raw_precedence=precs, n_random=n_random, time_limit=time_limit)
 
 
 
