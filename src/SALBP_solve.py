@@ -484,7 +484,7 @@ def generate_one_instance_results(alb_dict, ex_fp, out_fp, branch, time_limit):
 
 
 def ils_call(cycle_time, tasks_times_list, precedence_list, 
-                       max_iterations=1000, operation_probs=0.5, 
+                       max_iterations=1000000,time_limit=15, operation_probs=0.5, 
                        show_verbose=False, init_sol=None):
     """
     Uses ils to generate a SALBP solution
@@ -518,12 +518,14 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
     N = len(tasks_times_list)
     
     try:
+        start  = time.time()
         solution = ils.ils_solve_SALBP1(
             C=cycle_time,
             N=N,
             task_times=tasks_times_list,
             raw_precedence=precedence_list,
             max_iter=max_iterations,
+            time_limit=time_limit,
             op_probs=operation_probs,
             verbose=show_verbose,
             initial_solution=init_sol
@@ -531,7 +533,8 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         
         if show_verbose:
             print(f"Successfully solved SALBP1 with {N} tasks and cycle time {cycle_time}")
-
+        end = time.time()- start
+        solution = {**solution , "elapsed_time":end}
         return solution
 
     except Exception as e:
@@ -539,7 +542,44 @@ def ils_call(cycle_time, tasks_times_list, precedence_list,
         return None
     
 
-def salbp1_mhh_solve(alb_dict,  
+def salbp1_ils_solve(alb_dict,time_limit=15,max_iter=10000000, operation_probs=0.5, 
+                       show_verbose=False, init_sol=None , **kwargs):
+    
+        if init_sol is None:
+            init_sol = []
+
+        C = alb_dict['cycle_time']
+        precs = alb_dict['precedence_relations']
+        t_times = [val for _, val in alb_dict['task_times'].items()]
+        N = len(t_times)
+        precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
+     
+        try:
+            start  = time.time()
+            solution = ils.ils_solve_SALBP1(
+                C=C,
+                N=N,
+                task_times=t_times,
+                raw_precedence=precs,
+                max_iter=max_iter,
+                time_limit=time_limit,
+                op_probs=operation_probs,
+                verbose=show_verbose,
+                initial_solution=init_sol
+            )
+            
+            if show_verbose:
+                print(f"Successfully solved SALBP1 with {solution['n_stations']}")
+            end = time.time()- start
+            solution = solution.to_dict()
+            solution ={**solution, "elapsed_time":end}
+            return solution
+    
+        except Exception as e:
+            print(f"Error solving SALBP1: {e}")
+            return None
+
+def salbp1_mhh_solve(alb_dict,  alpha_schedule=None, beta_schedule=None,gamma=None, task_priorities=None, seed=None,
                 **kwargs):
     #print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
     C = alb_dict['cycle_time']
@@ -548,11 +588,19 @@ def salbp1_mhh_solve(alb_dict,
     N = len(t_times)
     precs = [[int(child), int(parent)]  for child, parent in alb_dict['precedence_relations']]
     start  = time.time()
+    # if alpha_schedule:
+    #     print("alpha sched: ", alpha_schedule)
+    #     print(" beta sched: ", beta_schedule)
     results = ils.mhh_solve_salbp1(
             C=C,
             N=N,
             task_times=t_times,
             raw_precedence=precs,
+            alpha_schedule = alpha_schedule,
+            beta_schedule = beta_schedule,
+            gamma = gamma,
+            task_priorities=task_priorities,
+            seed=seed
 
         )
     result_dict = results.to_dict()
@@ -835,7 +883,6 @@ def generate_results_from_pickle(fp  ,out_fp, res_df ,  ex_fp ,  backup_name , p
     #loads the pickle file
 
     if res_df is not None:
-
         res_df = pd.read_csv(res_df)
         if "pickle_fp" in res_df.columns:
             alb_files = []
