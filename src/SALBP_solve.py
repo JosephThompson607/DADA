@@ -31,7 +31,7 @@ import SALBP1_heuristics as ils
 import time
 from datetime import date
 import shutil
-def salbp1_bbr_call(salbp_dict,ex_fp=None, branch=1, time_limit=3600, w_bin_pack = True,orig_bbr=True, **kwargs):
+def salbp1_bbr_call(salbp_dict,ex_fp=None, branch=1, time_limit=3600, w_bin_pack = True,parsing_type='original', **kwargs):
     with tempfile.NamedTemporaryFile(suffix=".alb", delete=True) as temp_alb:
         temp_alb_path = temp_alb.name  # Path to temporary file
         write_to_alb(salbp_dict, temp_alb_path)
@@ -41,10 +41,14 @@ def salbp1_bbr_call(salbp_dict,ex_fp=None, branch=1, time_limit=3600, w_bin_pack
         else:
             output = subprocess.run([ex_fp, "-m", f"{branch}","-t", f"{time_limit}", temp_alb_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         #print("probelm solved. Parsing. Time: ", time.time()-start)
-        if orig_bbr:
+        if parsing_type=='original':
             results = parse_alb_results_orig_bbr(output.stdout.decode("utf-8"))
-        else:
+        elif parsing_type=='AM':
             results = parse_alb_results_new_bbr(output.stdout.decode("utf-8"))
+        elif parsing_type=='AM_tasks':
+            results = parse_output(output.stdout)
+        else:
+            print("UNKOWN PARSING TYPE")
     return results
 
 def random_task_time_change(SALBP_dict, multiplier = 1.5):
@@ -123,6 +127,30 @@ def parse_alb_results_orig_bbr(output_text):
 
     return result
 
+
+def parse_output(output):
+    if isinstance(output, bytes):
+        output = output.decode()
+
+    assignments = []
+    for line in output.splitlines():
+        match = re.match(r"\s*(\d+)\s+(\d+)$", line)
+        if match:
+            assignments.append(int(match.group(2)))
+
+    stations = int(re.search(r"Solution with (\d+) stations", output).group(1))
+    runtime = float(re.search(r"cpu:\s*([\d.]+)", output).group(1))
+    lower_bound = int(re.search(r"lb1:\s*(\d+)", output).group(1))
+    optimal = int(re.search(r"verified_optimality\s+(\d+)", output).group(1))
+
+    return {
+        "assignments": assignments,
+        "solution": stations,
+        "lower_bound": lower_bound,
+        "optimal": bool(optimal),
+        "runtime": runtime,
+    }
+
 def parse_alb_results_new_bbr(output_text):
     """
     Parse ALB solver output and return results dictionary.
@@ -134,7 +162,7 @@ def parse_alb_results_new_bbr(output_text):
         Dictionary with keys: verified_optimality, value, cpu, task_assignments
     """
     lines = output_text.strip().split('\n')
-    
+    print("here is the output", output_text)
     # Initialize result dictionary
     result = {
         'verified_optimality': 0,
