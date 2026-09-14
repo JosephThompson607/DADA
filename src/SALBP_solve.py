@@ -632,6 +632,27 @@ def salbp1_tabu_solve(alb_dict, time_limit=1.0,
     return {
             **result_dict,  "elapsed_time":end}
     
+def rep_mhh_call(albp, station_assignments, added_edges, how,
+                 mhh_load_iter=1000, alpha_schedule=None, beta_schedule=None, gamma=None,
+                 ranking=None, seed=None, **_):
+    """Repair an infeasible SALBP-1 solution using MHH."""
+    start = time.time()
+    results = ils.rep_mhh_salbp1(
+            albp=albp,
+            station_assignments=station_assignments,
+            added_edges=added_edges,
+            how=how,
+            max_attempts=mhh_load_iter,
+            alpha_schedule=alpha_schedule,
+            beta_schedule=beta_schedule,
+            gamma=gamma,
+            task_priorities=ranking,
+            seed=seed,
+        )
+    results = results.to_dict()
+    end = time.time() - start
+    results["elapsed_time"] = end
+    return results
 
 def salbp1_hoff_solve(alb_dict,  alpha_iter= 2,
                 alpha_size = 0.05,
