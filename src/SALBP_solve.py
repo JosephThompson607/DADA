@@ -579,7 +579,7 @@ def salbp1_ils_solve(alb_dict,time_limit=15,max_iter=10000000, operation_probs=0
             print(f"Error solving SALBP1: {e}")
             return None
 
-def salbp1_mhh_solve(alb_dict,  alpha_schedule=None, beta_schedule=None,gamma=None, task_priorities=None, seed=None,
+def salbp1_mhh_solve(alb_dict,  alpha_schedule=None, beta_schedule=None,gamma=None, task_priorities=None, seed=None, do_sternatz =False,
                 **kwargs):
     #print(f"using alpha_iter {alpha_iter}, alpha_size {alpha_size}, beta_iter {beta_iter}, beta_size {beta_size}, reverse {reverse}")
     C = alb_dict['cycle_time']
@@ -600,8 +600,8 @@ def salbp1_mhh_solve(alb_dict,  alpha_schedule=None, beta_schedule=None,gamma=No
             beta_schedule = beta_schedule,
             gamma = gamma,
             task_priorities=task_priorities,
-            seed=seed
-
+            seed=seed,
+            do_sternatz = do_sternatz
         )
     result_dict = results.to_dict()
     end = time.time()- start
@@ -634,7 +634,7 @@ def salbp1_tabu_solve(alb_dict, time_limit=1.0,
     
 def rep_mhh_call(albp, station_assignments, added_edges, how,
                  mhh_load_iter=1000, alpha_schedule=None, beta_schedule=None, gamma=None,
-                 ranking=None, seed=None, **_):
+                 ranking=None, seed=None,do_sternatz=False, **_):
     """Repair an infeasible SALBP-1 solution using MHH."""
     start = time.time()
     results = ils.rep_mhh_salbp1(
@@ -648,6 +648,7 @@ def rep_mhh_call(albp, station_assignments, added_edges, how,
             gamma=gamma,
             task_priorities=ranking,
             seed=seed,
+            do_sternatz = do_sternatz
         )
     results = results.to_dict()
     end = time.time() - start
